@@ -1,0 +1,41 @@
+name: BizAnalyst-Env
+version: "1.0.0"
+description: >
+  A business intelligence environment where AI agents act as data 
+  analysts. Agents query a realistic multi-table SQLite database to 
+  answer business questions, identify customer churn risk, and detect 
+  financial anomalies. Models real-world BI analyst workflows used 
+  daily in enterprise settings.
+domain: business_intelligence
+real_world_task: true
+tasks:
+  - id: revenue_summary
+    difficulty: easy
+    max_steps: 10
+  - id: customer_churn_risk
+    difficulty: medium
+    max_steps: 15
+  - id: anomaly_investigation
+    difficulty: hard
+    max_steps: 20
+action_space:
+  type: discrete_structured
+  actions: [run_query, describe_table, list_tables, submit_answer]
+observation_space:
+  type: structured_text
+  includes: [task_description, query_results, step_info, table_list]
+reward:
+  type: continuous
+  range: [0.0, 1.0]
+  shaped: true
+  terminal_bonus: true
+endpoints:
+  base_url: http://localhost:8000
+  reset: POST /reset
+  step: POST /step
+  state: GET /state
+  tasks: GET /tasks
+  grader: POST /grader
+  baseline: POST /baseline
+tags: [business-intelligence, sql, analytics, data-analysis]
+hf_space: YOUR_HF_USERNAME/bizanalyst-env
