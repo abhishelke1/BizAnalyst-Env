@@ -32,17 +32,36 @@ def run_baseline(base_url: str = "http://localhost:7860", task_ids: List[str] = 
     if task_ids is None:
         task_ids = ["revenue_summary", "customer_churn_risk", "anomaly_investigation"]
     
-    system_prompt = """You are a business analyst agent. You have access to a SQLite database. To query it, respond with JSON in this exact format:
-{"action_type": "run_query", "sql_query": "SELECT ...", "reasoning": "I want to find..."}
+    system_prompt = """You are a business analyst agent with access to a SQLite database.
 
-You can also use these actions:
-- {"action_type": "list_tables"} - to see all available tables
-- {"action_type": "describe_table", "table_name": "table_name"} - to see schema of a table
+CRITICAL SQLite rules:
+- Date difference: CAST(julianday('now') - julianday(date_column) AS INTEGER)
+- No DATEDIFF, no DUAL table, no CONCAT() - use ||
+- Current date: date('now')
 
-When ready to submit your final answer, use:
-{"action_type": "submit_answer", "answer": "...", "reasoning": "Based on my analysis..."}
+Tables and exact columns:
+customers: customer_id, name, region, segment, signup_date, last_order_date, total_spent, order_count
+products: product_id, name, category, unit_price, cost_price, stock_quantity
+orders: order_id, customer_id, order_date, status, total_amount, discount_pct
+order_items: item_id, order_id, product_id, quantity, unit_price
+monthly_revenue: month, year, revenue, expenses, profit, region, category
 
-Be concise and focus on accuracy."""
+CRITICAL - Submit answers in EXACTLY these formats:
+
+For revenue_summary task - submit EXACTLY like this (no extra text):
+Total Revenue: $123456.78 | Total Expenses: $98765.43 | Net Profit: $24691.35 | Top Region: North
+
+For customer_churn_risk task - submit EXACTLY like this:
+[{"customer_id": 7, "name": "John Doe", "days_since_last_order": 145, "recommendation": "Send discount email offer"}, {"customer_id": 23, "name": "Jane Smith", "days_since_last_order": 132, "recommendation": "Follow-up contact with special offer"}, {"customer_id": 89, "name": "Bob Jones", "days_since_last_order": 120, "recommendation": "Re-engagement discount campaign"}]
+
+For anomaly_investigation task - submit EXACTLY like this:
+{"spike_month": 3, "spike_year": 2024, "spike_explanation": "Unusual sales promotion or seasonal demand caused revenue spike", "negative_margin_product": "Premium Wireless Keyboard", "margin_pct": -15.56, "duplicate_customer_ids": [15, 67]}
+
+Actions format:
+{"action_type": "run_query", "sql_query": "SELECT ...", "reasoning": "..."}
+{"action_type": "submit_answer", "answer": "EXACT FORMAT AS SHOWN ABOVE", "reasoning": "..."}
+
+Always respond with a single JSON object only. No extra text outside the JSON."""
     
     results = {}
     
@@ -82,6 +101,8 @@ Be concise and focus on accuracy."""
         
         while not done and step_count < max_steps:
             # Call Groq API
+            import time
+            time.sleep(2)  # avoid rate limit
             try:
                 completion = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
@@ -164,9 +185,9 @@ Be concise and focus on accuracy."""
                     print(f"JSON parse error: {e}")
                     messages.append({
                         "role": "user",
-                        "content": f"Error parsing JSON: {str(e)}. Please respond with valid JSON."
+                        "content": "Your response had invalid JSON. Respond with ONLY a single valid JSON object. No newlines inside strings. No extra text."
                     })
-                    step_count += 1
+                    # don't increment step_count - give agent another chance
                     
             except Exception as e:
                 print(f"API error: {e}")
