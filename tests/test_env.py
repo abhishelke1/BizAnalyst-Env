@@ -108,7 +108,7 @@ class TestEnvironmentBasics:
             obs, reward, done, info = env.step(action)
             
             assert obs.query_result.error is not None
-            assert "only select" in obs.query_result.error.lower()
+            assert "not allowed" in obs.query_result.error.lower()
             assert reward.value < 0
     
     def test_run_query_with_sql_error(self):
@@ -171,49 +171,46 @@ class TestEnvironmentBasics:
         state = env.state()
         
         assert state['task_id'] == "revenue_summary"
-        assert state['step'] == 1
+        assert state['step_number'] == 1
         assert state['max_steps'] == 10
-        assert state['queries_run'] == 1
-        assert len(state['query_history']) == 1
+        assert state['queries_executed'] == 1
         assert not state['answer_submitted']
     
     def test_table_exploration_bonus(self):
-        """Test that exploring new tables gives bonus reward."""
+        """Test that exploring new tables via DESCRIBE_TABLE gives bonus reward."""
         env = BizAnalystEnv()
         env.reset("revenue_summary")
         
-        # First query to a table
+        # First describe of a table (exploration bonus)
         action1 = Action(
-            action_type=ActionType.RUN_QUERY,
-            sql_query="SELECT * FROM customers LIMIT 1"
+            action_type=ActionType.DESCRIBE_TABLE,
+            table_name="customers"
         )
         obs1, reward1, _, _ = env.step(action1)
         
-        # Second query to same table
+        # Second describe of same table (no bonus)
         action2 = Action(
-            action_type=ActionType.RUN_QUERY,
-            sql_query="SELECT * FROM customers LIMIT 2"
+            action_type=ActionType.DESCRIBE_TABLE,
+            table_name="customers"
         )
         obs2, reward2, _, _ = env.step(action2)
         
-        # First query should have exploration bonus
+        # First describe should have exploration bonus
         assert reward1.value > reward2.value
     
-    def test_intermediate_rewards_for_revenue_task(self):
-        """Test task-specific intermediate rewards for revenue_summary."""
+    def test_intermediate_rewards_for_query(self):
+        """Test intermediate rewards for successful queries."""
         env = BizAnalystEnv()
         env.reset("revenue_summary")
         
-        # Query monthly_revenue table
+        # Query with results -> +0.02
         action = Action(
             action_type=ActionType.RUN_QUERY,
             sql_query="SELECT * FROM monthly_revenue WHERE year = 2023 LIMIT 1"
         )
         obs, reward, _, _ = env.step(action)
         
-        # Should get bonus for querying monthly_revenue and filtering by year
-        assert reward.value > 0.05  # Base rewards + bonuses
-        assert 'first_revenue_query' in reward.components or 'year_filter' in reward.components
+        assert reward.value == 0.02
 
 
 class TestDeterministicSeeding:
@@ -227,12 +224,12 @@ class TestDeterministicSeeding:
         query = "SELECT COUNT(*) as cnt FROM customers"
         action = Action(action_type=ActionType.RUN_QUERY, sql_query=query)
         result1, _, _, _ = env1.step(action)
-        count1 = result1.query_result.rows[0][0]
+        count1 = result1.query_result.rows[0]['cnt']
         
         env2 = BizAnalystEnv()
         obs2 = env2.reset("revenue_summary")
         result2, _, _, _ = env2.step(action)
-        count2 = result2.query_result.rows[0][0]
+        count2 = result2.query_result.rows[0]['cnt']
         
         assert count1 == count2
         assert count1 == 200  # Expected customer count

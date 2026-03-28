@@ -68,19 +68,9 @@ async def root():
     return {
         "name": "BizAnalyst-Env",
         "version": "1.0.0",
-        "description": "Business Intelligence Environment for AI Agents",
-        "domain": "business_intelligence",
-        "tasks": ["revenue_summary", "customer_churn_risk", "anomaly_investigation"],
-        "endpoints": {
-            "reset": "POST /reset",
-            "step": "POST /step",
-            "state": "GET /state",
-            "tasks": "GET /tasks",
-            "grader": "POST /grader",
-            "baseline": "POST /baseline",
-            "health": "GET /health"
-        },
-        "status": "ready"
+        "status": "running",
+        "docs": "/docs",
+        "endpoints": ["/reset", "/step", "/state", "/tasks", "/grader", "/baseline", "/health"]
     }
 
 
@@ -163,29 +153,7 @@ async def get_tasks():
         temp_env = BizAnalystEnv()
         temp_env.reset("revenue_summary")
         
-        tasks = []
-        for task in temp_env.task_manager.get_all_tasks():
-            tasks.append({
-                "task_id": task.task_id,
-                "description": task.description,
-                "difficulty": task.difficulty,
-                "max_steps": task.max_steps,
-                "action_schema": {
-                    "action_types": [
-                        "run_query",
-                        "describe_table",
-                        "list_tables",
-                        "submit_answer"
-                    ],
-                    "fields": {
-                        "action_type": "ActionType (required)",
-                        "sql_query": "str (optional, for run_query)",
-                        "table_name": "str (optional, for describe_table)",
-                        "answer": "str (optional, for submit_answer)",
-                        "reasoning": "str (optional)"
-                    }
-                }
-            })
+        tasks = temp_env.task_manager.list_tasks()
         
         temp_env.db_manager.close()
         return tasks
@@ -214,25 +182,11 @@ async def grade_answer(request: GraderRequest) -> GraderResponse:
             raise HTTPException(status_code=422, detail=f"Task '{request.task_id}' not found")
         
         # Grade the answer
-        if request.task_id == 'anomaly_investigation':
-            score, breakdown, feedback = task.grader_func(
-                request.answer,
-                task.correct_answers,
-                0,  # steps_used
-                []  # query_history
-            )
-        elif request.task_id == 'revenue_summary':
-            score, breakdown, feedback = task.grader_func(
-                request.answer,
-                task.correct_answers,
-                0  # steps_used
-            )
-        else:
-            score, breakdown, feedback = task.grader_func(
-                request.answer,
-                task.correct_answers,
-                0  # steps_used
-            )
+        score, breakdown, feedback = task.grader_func(
+            request.answer,
+            task.correct_answers,
+            0  # steps_used
+        )
         
         temp_env.db_manager.close()
         
@@ -244,6 +198,8 @@ async def grade_answer(request: GraderRequest) -> GraderResponse:
         
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
@@ -260,9 +216,10 @@ async def run_baseline(request: BaselineRequest) -> BaselineResponse:
     """
     try:
         from openai import OpenAI
+        import time
         
         # Check for API key
-        api_key = os.getenv("GROQ_API_KEY", "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")
+        api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
             raise HTTPException(
                 status_code=422,
@@ -274,36 +231,36 @@ async def run_baseline(request: BaselineRequest) -> BaselineResponse:
             base_url="https://api.groq.com/openai/v1"
         )
         
-        system_prompt = """You are a business analyst agent with access to a SQLite database.
+        system_prompt = """You are a business analyst agent with access to a SQLite database. 
 
-CRITICAL SQLite rules:
-- Date difference: CAST(julianday('now') - julianday(date_column) AS INTEGER)
-- No DATEDIFF, no DUAL table, no CONCAT() - use ||
-- Current date: date('now')
+CRITICAL SQLite rules - never use MySQL or Oracle syntax:
+- Date difference: CAST(julianday('2024-06-01') - julianday(date_col) AS INTEGER)
+- No DATEDIFF, no DUAL table, no CONCAT() - use || for strings
+- No NOW() - use date('2024-06-01') as reference date
 
-Tables and exact columns:
+Exact tables and columns (use ONLY these):
 customers: customer_id, name, region, segment, signup_date, last_order_date, total_spent, order_count
 products: product_id, name, category, unit_price, cost_price, stock_quantity
 orders: order_id, customer_id, order_date, status, total_amount, discount_pct
 order_items: item_id, order_id, product_id, quantity, unit_price
 monthly_revenue: month, year, revenue, expenses, profit, region, category
 
-CRITICAL - Submit answers in EXACTLY these formats:
+CRITICAL - submit answers in EXACTLY these formats:
 
-For revenue_summary task - submit EXACTLY like this (no extra text):
+Task revenue_summary answer format:
 Total Revenue: $123456.78 | Total Expenses: $98765.43 | Net Profit: $24691.35 | Top Region: North
 
-For customer_churn_risk task - submit EXACTLY like this:
-[{"customer_id": 7, "name": "John Doe", "days_since_last_order": 145, "recommendation": "Send discount email offer"}, {"customer_id": 23, "name": "Jane Smith", "days_since_last_order": 132, "recommendation": "Follow-up contact with special offer"}, {"customer_id": 89, "name": "Bob Jones", "days_since_last_order": 120, "recommendation": "Re-engagement discount campaign"}]
+Task customer_churn_risk answer format (JSON array):
+[{"customer_id": 7, "name": "John Doe", "days_since_last_order": 150, "recommendation": "Send discount email offer"}, {"customer_id": 23, "name": "Jane Smith", "days_since_last_order": 135, "recommendation": "Follow-up with special offer"}, {"customer_id": 89, "name": "Bob Jones", "days_since_last_order": 120, "recommendation": "Re-engagement discount campaign"}]
 
-For anomaly_investigation task - submit EXACTLY like this:
-{"spike_month": 3, "spike_year": 2024, "spike_explanation": "Unusual sales promotion or seasonal demand caused revenue spike", "negative_margin_product": "Premium Wireless Keyboard", "margin_pct": -15.56, "duplicate_customer_ids": [15, 67]}
+Task anomaly_investigation answer format (JSON object):
+{"spike_month": 3, "spike_year": 2024, "spike_explanation": "Revenue spike caused by unusual seasonal promotion campaign", "negative_margin_product": "Premium Wireless Keyboard", "margin_pct": -13.46, "duplicate_customer_ids": [15, 67]}
 
-Actions format:
+Actions:
 {"action_type": "run_query", "sql_query": "SELECT ...", "reasoning": "..."}
-{"action_type": "submit_answer", "answer": "EXACT FORMAT AS SHOWN ABOVE", "reasoning": "..."}
+{"action_type": "submit_answer", "answer": "EXACT FORMAT ABOVE", "reasoning": "..."}
 
-Always respond with a single JSON object only. No extra text outside the JSON."""
+Respond with a single JSON object only. No extra text."""
         
         scores = {}
         details = {}
@@ -326,6 +283,9 @@ Always respond with a single JSON object only. No extra text outside the JSON.""
             while not done and step_count < max_steps:
                 # Call OpenAI API
                 try:
+                    # Rate limiting - wait 2 seconds before API call
+                    time.sleep(2)
+                    
                     response = client.chat.completions.create(
                         model="llama-3.1-8b-instant",
                         messages=messages,
@@ -393,11 +353,11 @@ Always respond with a single JSON object only. No extra text outside the JSON.""
         
         total_score = sum(scores.values()) / len(scores) if scores else 0.0
         
-        return BaselineResponse(
-            scores=scores,
-            total=total_score,
-            details=details
-        )
+        return {
+            "scores": scores,
+            "average": total_score,
+            "model": "llama-3.1-8b-instant"
+        }
         
     except HTTPException:
         raise
@@ -407,4 +367,4 @@ Always respond with a single JSON object only. No extra text outside the JSON.""
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=7860)

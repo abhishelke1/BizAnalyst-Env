@@ -30,7 +30,7 @@ class BizAnalystEnv:
         Returns:
             Initial observation
         """
-        # Initialize database
+        # Re-initialize database fresh every reset
         if self.db_manager:
             self.db_manager.close()
         
@@ -110,15 +110,13 @@ class BizAnalystEnv:
                 is_terminal=False
             )
         
-        # Check if max steps reached
+        # Check if max steps reached without answer
         if self.step_count >= self.current_task.max_steps and not done:
             done = True
-            # Partial credit for progress
-            final_score = min(1.0, self.accumulated_reward * 0.1)
-            observation.message = f"Max steps reached. Episode terminated. Partial score: {final_score:.2f}"
+            observation.message = f"Max steps reached. Episode terminated."
             reward = Reward(
-                value=final_score,
-                components={'partial_progress': final_score},
+                value=0.05,
+                components={'timeout': 0.05},
                 feedback="Max steps reached without submitting answer",
                 is_terminal=True
             )
@@ -165,7 +163,7 @@ class BizAnalystEnv:
             schema = self.db_manager.get_table_schema(action.table_name)
             schema_dict = {col[0]: col[1] for col in schema}
             
-            # Track table exploration
+            # Track table exploration - bonus for first time
             if action.table_name not in self.tables_explored:
                 self.tables_explored.add(action.table_name)
                 exploration_bonus = 0.02
@@ -199,7 +197,7 @@ class BizAnalystEnv:
             reward = Reward(
                 value=-0.01,
                 components={'error': -0.01},
-                feedback=f"Failed to describe table: {str(e)}",
+                feedback=str(e),
                 is_terminal=False
             )
         
@@ -210,7 +208,13 @@ class BizAnalystEnv:
         if not action.sql_query:
             observation = self._create_observation(
                 message="Error: sql_query is required for RUN_QUERY action",
-                query_result=None
+                query_result=QueryResult(
+                    success=False,
+                    rows=[],
+                    columns=[],
+                    row_count=0,
+                    error="Missing sql_query parameter"
+                )
             )
             reward = Reward(
                 value=-0.01,
@@ -220,92 +224,77 @@ class BizAnalystEnv:
             )
             return observation, reward
         
-        # Validate query
-        is_valid, error_message = validate_sql_query(action.sql_query)
-        if not is_valid:
-            observation = self._create_observation(
-                message=f"Query validation failed: {error_message}",
-                query_result=QueryResult(
-                    columns=[],
-                    rows=[],
-                    row_count=0,
-                    execution_time_ms=0.0,
-                    error=error_message
+        # Block dangerous SQL keywords
+        dangerous_keywords = ['DROP', 'DELETE', 'INSERT', 'UPDATE', 'CREATE', 'ALTER', 'EXEC', 'ATTACH', 'DETACH']
+        query_upper = action.sql_query.upper()
+        
+        for keyword in dangerous_keywords:
+            if keyword in query_upper:
+                observation = self._create_observation(
+                    message=f"Error: SQL keyword '{keyword}' is not allowed",
+                    query_result=QueryResult(
+                        success=False,
+                        rows=[],
+                        columns=[],
+                        row_count=0,
+                        error=f"SQL keyword '{keyword}' is not allowed for security reasons. Only SELECT queries are permitted."
+                    )
                 )
-            )
-            reward = Reward(
-                value=-0.02,
-                components={'failed_query': -0.02},
-                feedback="Query validation failed",
-                is_terminal=False
-            )
-            return observation, reward
+                reward = Reward(
+                    value=-0.01,
+                    components={'security_error': -0.01},
+                    feedback=f"Blocked dangerous SQL keyword: {keyword}",
+                    is_terminal=False
+                )
+                return observation, reward
         
         # Execute query
         try:
-            start_time = time.time()
             results = self.db_manager.execute_query(action.sql_query)
-            execution_time = (time.time() - start_time) * 1000  # Convert to ms
             
-            # Convert results to list format
+            # Convert results to list of dicts
+            rows = []
+            columns = []
             if results:
                 columns = list(results[0].keys())
-                rows = [list(row) for row in results]
-            else:
-                columns = []
-                rows = []
+                rows = [dict(row) for row in results]
             
             query_result = QueryResult(
-                columns=columns,
+                success=True,
                 rows=rows,
+                columns=columns,
                 row_count=len(rows),
-                execution_time_ms=round(execution_time, 2),
                 error=None
             )
             
-            # Track query
             self.queries_executed.append(action.sql_query)
-            self.query_history.append(action.sql_query)
+            self.query_history.append({
+                'step': self.step_count,
+                'query': action.sql_query,
+                'row_count': len(rows)
+            })
             
-            # Compute reward
-            reward_components = {'successful_query': 0.01}
-            reward_value = 0.01
-            
-            if len(rows) > 0:
-                reward_components['query_with_results'] = 0.01
-                reward_value += 0.01
-            
-            # Check for new table exploration
-            query_upper = action.sql_query.upper()
-            for table in self.db_manager.get_table_names():
-                if table.upper() in query_upper and table not in self.tables_explored:
-                    self.tables_explored.add(table)
-                    reward_components['new_table_explored'] = 0.02
-                    reward_value += 0.02
-                    self.accumulated_reward += 0.02
-                    break
-            
-            # Task-specific intermediate rewards
-            reward_value += self._compute_task_specific_reward(action.sql_query, query_result, reward_components)
+            # Intermediate reward
+            reward_value = self._compute_intermediate_reward(query_result, action.sql_query)
             
             observation = self._create_observation(
-                message=f"Query executed successfully. Returned {len(rows)} row(s).",
+                message=f"Query executed successfully. Returned {len(rows)} rows.",
                 query_result=query_result
             )
             
             reward = Reward(
                 value=reward_value,
-                components=reward_components,
-                feedback=f"Query successful, {len(rows)} rows returned",
+                components={'successful_query': reward_value},
+                feedback=f"Query returned {len(rows)} rows",
                 is_terminal=False
             )
             
         except Exception as e:
             query_result = QueryResult(
-                columns=[],
+                success=False,
                 rows=[],
+                columns=[],
                 row_count=0,
-                execution_time_ms=0.0,
                 error=str(e)
             )
             
@@ -315,9 +304,9 @@ class BizAnalystEnv:
             )
             
             reward = Reward(
-                value=-0.02,
-                components={'failed_query': -0.02},
-                feedback=f"Query failed: {str(e)}",
+                value=-0.01,
+                components={'failed_query': -0.01},
+                feedback=f"SQL error: {str(e)}",
                 is_terminal=False
             )
         
@@ -331,83 +320,61 @@ class BizAnalystEnv:
                 query_result=None
             )
             reward = Reward(
-                value=0.0,
+                value=-0.01,
                 components={'error': -0.01},
                 feedback="Missing answer",
                 is_terminal=False
             )
             return observation, reward, False
         
+        # Grade the answer
+        score, component_scores, feedback = self.task_manager.grade_answer(
+            self.current_task.task_id,
+            action.answer,
+            self.step_count
+        )
+        
         self.answer_submitted = True
         
-        # Grade the answer
-        if self.current_task.task_id == 'anomaly_investigation':
-            # Pass query history for window function bonus
-            score, components, feedback = self.current_task.grader_func(
-                action.answer,
-                self.current_task.correct_answers,
-                self.step_count,
-                self.query_history
-            )
-        elif self.current_task.task_id == 'revenue_summary':
-            # Pass steps for efficiency penalty
-            score, components, feedback = self.current_task.grader_func(
-                action.answer,
-                self.current_task.correct_answers,
-                self.step_count
-            )
-        else:
-            score, components, feedback = self.current_task.grader_func(
-                action.answer,
-                self.current_task.correct_answers,
-                self.step_count
-            )
-        
         observation = self._create_observation(
-            message=f"Answer submitted. Final score: {score:.2f}. {feedback}",
+            message=f"Answer submitted. Final score: {score:.2f}",
             query_result=None
         )
         observation.answer_submitted = True
         
         reward = Reward(
             value=score,
-            components=components,
+            components=component_scores,
             feedback=feedback,
             is_terminal=True
         )
         
-        return observation, reward, True
+        return observation, reward, True  # done=True
     
-    def _compute_task_specific_reward(self, query: str, result: QueryResult, components: Dict[str, float]) -> float:
-        """Compute task-specific intermediate rewards.
+    def _compute_intermediate_reward(self, query_result: QueryResult, query: str) -> float:
+        """Compute intermediate reward for query execution.
         
         Args:
-            query: SQL query executed
-            result: Query result
-            components: Dictionary to add reward components to
+            query_result: Result of the query
+            query: SQL query string
             
         Returns:
-            Additional reward value
+            Intermediate reward value
         """
-        additional_reward = 0.0
-        query_upper = query.upper()
-        
-        if self.current_task.task_id == 'revenue_summary':
-            # Reward for querying monthly_revenue table
-            if 'MONTHLY_REVENUE' in query_upper and 'monthly_revenue' not in [q.upper() for q in self.queries_executed[:-1]]:
-                components['first_revenue_query'] = 0.1
-                additional_reward += 0.1
-                self.accumulated_reward += 0.1
-            
-            # Reward for filtering by year 2023
-            if '2023' in query and result.row_count > 0:
-                components['year_filter'] = 0.05
-                additional_reward += 0.05
-                self.accumulated_reward += 0.05
-        
-        return additional_reward
+        if query_result.success:
+            if query_result.row_count > 0:
+                return 0.02  # Successful query with results
+            else:
+                return 0.01  # Successful query, empty results
+        else:
+            return -0.01  # Failed query
     
-    def _create_observation(self, message: str, query_result: QueryResult = None, schema_info: Dict[str, Any] = None) -> Observation:
+    def _create_observation(
+        self,
+        message: str,
+        query_result: QueryResult = None,
+        schema_info: Dict[str, Dict[str, str]] = None
+    ) -> Observation:
         """Create an observation object.
         
         Args:
@@ -435,14 +402,13 @@ class BizAnalystEnv:
         """Get current environment state.
         
         Returns:
-            Dictionary with complete state information
+            Dictionary containing current state
         """
         return {
             'task_id': self.current_task.task_id if self.current_task else None,
-            'step': self.step_count,
+            'step_number': self.step_count,
             'max_steps': self.current_task.max_steps if self.current_task else 0,
-            'queries_run': len(self.queries_executed),
-            'query_history': self.queries_executed.copy(),
+            'queries_executed': len(self.queries_executed),
             'tables_explored': list(self.tables_explored),
             'answer_submitted': self.answer_submitted,
             'accumulated_reward': self.accumulated_reward

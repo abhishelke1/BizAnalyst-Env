@@ -22,10 +22,11 @@ class Action(BaseModel):
 
 class QueryResult(BaseModel):
     """Result from executing a SQL query."""
+    success: bool
     columns: List[str]
-    rows: List[List[Any]]
+    rows: List[Dict[str, Any]]
     row_count: int
-    execution_time_ms: float
+    execution_time_ms: float = 0.0
     error: Optional[str] = None
 
 

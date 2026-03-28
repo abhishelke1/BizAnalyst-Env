@@ -1,11 +1,10 @@
 name: BizAnalyst-Env
 version: "1.0.0"
 description: >
-  A business intelligence environment where AI agents act as data 
-  analysts. Agents query a realistic multi-table SQLite database to 
-  answer business questions, identify customer churn risk, and detect 
-  financial anomalies. Models real-world BI analyst workflows used 
-  daily in enterprise settings.
+  A business intelligence environment where AI agents act as data
+  analysts. Agents query a realistic multi-table SQLite database to
+  answer business questions, identify customer churn risk, and detect
+  financial anomalies. Models real-world BI analyst workflows.
 domain: business_intelligence
 real_world_task: true
 tasks:
@@ -28,14 +27,13 @@ reward:
   type: continuous
   range: [0.0, 1.0]
   shaped: true
-  terminal_bonus: true
 endpoints:
-  base_url: http://localhost:8000
+  base_url: http://localhost:7860
   reset: POST /reset
   step: POST /step
   state: GET /state
   tasks: GET /tasks
   grader: POST /grader
   baseline: POST /baseline
-tags: [business-intelligence, sql, analytics, data-analysis]
-hf_space: YOUR_HF_USERNAME/bizanalyst-env
+tags: [business-intelligence, sql, analytics, data-analysis, openenv]
+

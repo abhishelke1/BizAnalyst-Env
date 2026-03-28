@@ -5,6 +5,15 @@ from faker import Faker
 from typing import List, Tuple
 
 
+def get_reference_date() -> str:
+    """Return the fixed reference date used for all date calculations.
+    
+    Returns:
+        Fixed reference date string in 'YYYY-MM-DD' format
+    """
+    return '2024-06-01'
+
+
 class DatabaseManager:
     """Manages SQLite database initialization and seeding."""
     
@@ -19,7 +28,7 @@ class DatabaseManager:
         
     def connect(self):
         """Create database connection."""
-        self.conn = sqlite3.connect(self.db_path)
+        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         
     def close(self):
@@ -101,7 +110,7 @@ class DatabaseManager:
         
     def seed_data(self):
         """Seed database with deterministic fake data."""
-        # Set random seed for reproducibility
+        # CRITICAL: Set random seed for 100% reproducibility
         random.seed(42)
         fake = Faker()
         Faker.seed(42)
@@ -113,6 +122,9 @@ class DatabaseManager:
         segments = ['Enterprise', 'SMB', 'Consumer']
         categories = ['Electronics', 'Office Supplies', 'Furniture', 'Software', 'Accessories']
         
+        # Reference date for calculations
+        reference_date = datetime.strptime(get_reference_date(), '%Y-%m-%d')
+        
         # 1. Seed customers (200 customers)
         customers_data = []
         for i in range(1, 201):
@@ -122,9 +134,22 @@ class DatabaseManager:
             segment = segments[i % len(segments)]
             signup_date = fake.date_between(start_date='-3y', end_date='-1y')
             
+            # Plant churn-risk customers at specific IDs with exact dates
+            if customer_id == 7:
+                # 150 days before reference date
+                last_order_date = (reference_date - timedelta(days=150)).strftime('%Y-%m-%d')
+            elif customer_id == 23:
+                # 135 days before reference date
+                last_order_date = (reference_date - timedelta(days=135)).strftime('%Y-%m-%d')
+            elif customer_id == 89:
+                # 120 days before reference date
+                last_order_date = (reference_date - timedelta(days=120)).strftime('%Y-%m-%d')
+            else:
+                last_order_date = None  # Will be set after orders
+            
             customers_data.append((
                 customer_id, name, region, segment, 
-                signup_date.strftime('%Y-%m-%d'), None, 0.0, 0
+                signup_date.strftime('%Y-%m-%d'), last_order_date, 0.0, 0
             ))
         
         cursor.executemany("""
@@ -153,14 +178,14 @@ class DatabaseManager:
             name = product_names[i]
             category = categories[i % len(categories)]
             
-            # Normal pricing
-            unit_price = round(random.uniform(10, 200), 2)
-            cost_price = round(unit_price * random.uniform(0.4, 0.7), 2)
-            
-            # Plant negative margin product
+            # Plant negative margin product exactly as specified
             if name == "Premium Wireless Keyboard":
                 unit_price = 45.0
                 cost_price = 52.0
+            else:
+                # Normal pricing
+                unit_price = round(random.uniform(10, 200), 2)
+                cost_price = round(unit_price * random.uniform(0.4, 0.7), 2)
             
             stock_quantity = random.randint(0, 500)
             
@@ -173,7 +198,7 @@ class DatabaseManager:
             VALUES (?, ?, ?, ?, ?, ?)
         """, products_data)
         
-        # 3. Seed orders (1000+ orders spanning 2022-2024)
+        # 3. Seed orders (1000+ orders)
         orders_data = []
         order_items_data = []
         order_statuses = ['completed', 'completed', 'completed', 'completed', 'pending', 'cancelled']
@@ -182,7 +207,7 @@ class DatabaseManager:
         item_id = 1
         
         start_date = datetime(2022, 1, 1)
-        end_date = datetime(2024, 12, 31)
+        end_date = datetime(2024, 5, 31)  # Before reference date
         
         for i in range(1200):
             customer_id = random.randint(1, 200)
@@ -234,6 +259,7 @@ class DatabaseManager:
         duplicate_date = '2024-01-15'
         duplicate_amount = 299.99
         
+        # Customer 15 - two identical orders
         cursor.execute("""
             INSERT INTO orders (order_id, customer_id, order_date, status, total_amount, discount_pct)
             VALUES (?, 15, ?, 'completed', ?, 0.0)
@@ -246,6 +272,7 @@ class DatabaseManager:
         """, (order_id, duplicate_date, duplicate_amount))
         order_id += 1
         
+        # Customer 67 - two identical orders
         cursor.execute("""
             INSERT INTO orders (order_id, customer_id, order_date, status, total_amount, discount_pct)
             VALUES (?, 67, ?, 'completed', ?, 0.0)
@@ -257,7 +284,7 @@ class DatabaseManager:
             VALUES (?, 67, ?, 'completed', ?, 0.0)
         """, (order_id, duplicate_date, duplicate_amount))
         
-        # 4. Update customer aggregates
+        # 4. Update customer aggregates (except churn-risk customers who already have dates)
         cursor.execute("""
             UPDATE customers
             SET total_spent = (
@@ -272,48 +299,35 @@ class DatabaseManager:
                 WHERE orders.customer_id = customers.customer_id
                 AND orders.status = 'completed'
             ),
-            last_order_date = (
-                SELECT MAX(order_date)
-                FROM orders
-                WHERE orders.customer_id = customers.customer_id
-                AND orders.status = 'completed'
-            )
+            last_order_date = CASE 
+                WHEN customer_id IN (7, 23, 89) THEN last_order_date
+                ELSE (
+                    SELECT MAX(order_date)
+                    FROM orders
+                    WHERE orders.customer_id = customers.customer_id
+                    AND orders.status = 'completed'
+                )
+            END
         """)
         
-        # Plant churn risk customers (IDs ending in 07, 23, 89)
-        # Set their last_order_date to > 120 days ago
-        churn_date = (datetime.now() - timedelta(days=130)).strftime('%Y-%m-%d')
-        churn_customer_ids = [7, 23, 89, 107]
-        
-        for cid in churn_customer_ids:
-            if cid <= 200:
-                cursor.execute("""
-                    UPDATE customers
-                    SET last_order_date = ?
-                    WHERE customer_id = ?
-                """, (churn_date, cid))
-        
-        # 5. Seed monthly_revenue (2022-2024, with March 2024 spike)
+        # 5. Seed monthly_revenue with exact spike anomaly
         monthly_revenue_data = []
         revenue_id = 1
         
         for year in [2022, 2023, 2024]:
             for month in range(1, 13):
-                if year == 2024 and month > 3:
+                if year == 2024 and month > 5:  # Only up to May 2024
                     break
                     
                 for region in regions:
                     for category in categories:
-                        base_revenue = random.uniform(10000, 50000)
-                        
-                        # Plant revenue spike in March 2024
+                        # Plant exact revenue spike for March 2024
                         if year == 2024 and month == 3:
-                            # Calculate 6-month average (Sep 2023 - Feb 2024)
-                            six_month_avg = 30000  # Approximate average
-                            base_revenue = six_month_avg * 1.43  # 43% spike
+                            revenue = 110000.0  # ~43% above average of 50000-80000
+                        else:
+                            revenue = round(random.uniform(50000, 80000), 2)
                         
-                        revenue = round(base_revenue, 2)
-                        expenses = round(revenue * random.uniform(0.6, 0.8), 2)
+                        expenses = round(revenue * random.uniform(0.6, 0.75), 2)
                         profit = round(revenue - expenses, 2)
                         
                         monthly_revenue_data.append((
