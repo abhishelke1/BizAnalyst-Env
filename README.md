@@ -1,458 +1,346 @@
-# BizAnalyst-Env
+# 🔍 BizAnalyst-Env (SCOUT AI)
 
-[![OpenEnv](https://img.shields.io/badge/OpenEnv-Compatible-blue)](https://openenv.dev)
+### *OpenEnv Business Intelligence Training Environment*
+
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.111.0-green.svg)](https://fastapi.tiangolo.com)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
+[![OpenEnv](https://img.shields.io/badge/OpenEnv-1.0-orange.svg)](https://openenv.dev)
 
-> A production-ready OpenEnv environment for training AI agents as business analysts
+> **Train AI agents to be autonomous business analysts.**
 
-## Motivation
-
-Every company employs data analysts who query databases, identify trends, detect anomalies, and generate business insights. **BizAnalyst-Env** simulates this real-world workflow, creating a valuable training ground for AI agents to develop commercial BI automation capabilities.
-
-By mastering this environment, agents learn to:
-- Query multi-table relational databases with SQL
-- Analyze business metrics (revenue, expenses, profit)
-- Identify at-risk customers and churn patterns
-- Detect financial anomalies and duplicate records
-- Provide actionable business recommendations
-
-This directly models tasks performed daily by analysts in enterprise settings, making it a highly practical and commercially valuable benchmark.
+BizAnalyst-Env is an OpenEnv-compliant training environment where AI agents learn to act as business analysts. Agents query a realistic SQL database to solve business problems: revenue analysis, churn prediction, and anomaly detection.
 
 ---
 
-## Environment Description
+## 🎯 Environment Description & Motivation
 
-**BizAnalyst-Env** is a business intelligence environment where AI agents act as data analysts. Agents interact with a realistic SQLite database containing sales, customer, product, and revenue data to complete three analytical tasks of varying difficulty.
+**Real-World Task**: Business Intelligence Analysis
 
-### Database Schema
+Business analysts spend hours querying databases, finding patterns, and making recommendations. This environment simulates that workflow:
 
-The environment includes 5 interconnected tables with 200+ customers, 50 products, and 1000+ orders:
+1. Agent receives a business question
+2. Agent explores database schema
+3. Agent runs SQL queries to gather data
+4. Agent synthesizes findings into actionable insights
+5. Agent submits a structured answer
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  CUSTOMERS                         PRODUCTS                             │
-│  ├─ customer_id (PK)               ├─ product_id (PK)                   │
-│  ├─ name                           ├─ name                              │
-│  ├─ region (North/South/East/West) ├─ category (5 categories)           │
-│  ├─ segment (Enterprise/SMB/       ├─ unit_price                        │
-│  │   Consumer)                     ├─ cost_price                        │
-│  ├─ signup_date                    └─ stock_quantity                    │
-│  ├─ last_order_date                                                     │
-│  ├─ total_spent                         ▲                               │
-│  └─ order_count                         │                               │
-│           │                             │                               │
-│           ▼                             │                               │
-│  ORDERS                                 │                               │
-│  ├─ order_id (PK)                       │                               │
-│  ├─ customer_id (FK) ───────────────────┘                               │
-│  ├─ order_date                                                          │
-│  ├─ status                         ORDER_ITEMS                          │
-│  ├─ total_amount                   ├─ item_id (PK)                      │
-│  └─ discount_pct                   ├─ order_id (FK) ─────────┐          │
-│           │                        ├─ product_id (FK) ────────┼─────┐   │
-│           └────────────────────────┤ quantity                │     │   │
-│                                    └─ unit_price             │     │   │
-│                                                              │     │   │
-│  MONTHLY_REVENUE                                            │     │   │
-│  ├─ id (PK)                                                 │     │   │
-│  ├─ month, year                                             │     │   │
-│  ├─ revenue                                                 │     │   │
-│  ├─ expenses                                                │     │   │
-│  ├─ profit                                                  │     │   │
-│  ├─ region                                                  │     │   │
-│  └─ category                                                │     │   │
-└─────────────────────────────────────────────────────────────┴─────┴───┘
+**Why This Matters**: Trains agents for real enterprise workflows that currently require expensive human analysts.
+
+---
+
+## 📋 OpenEnv Specification
+
+This environment implements the full OpenEnv spec:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/reset` | POST | Reset environment with task_id |
+| `/step` | POST | Execute action, get observation |
+| `/state` | GET | Get current environment state |
+| `/tasks` | GET | List all tasks with action schemas |
+| `/grader` | POST | Grade an answer (0.0-1.0) |
+| `/baseline` | POST | Run baseline agent on all tasks |
+
+---
+
+## 🎮 Action Space
+
+**Type**: `discrete_structured`
+
+| Action | Parameters | Description |
+|--------|------------|-------------|
+| `run_query` | `sql_query: str`, `reasoning: str` | Execute SQL query |
+| `describe_table` | `table_name: str` | Get table schema |
+| `list_tables` | - | List available tables |
+| `submit_answer` | `answer: str`, `reasoning: str` | Submit final answer |
+
+**Action Schema (Pydantic)**:
+```python
+class Action(BaseModel):
+    action_type: ActionType  # run_query, describe_table, list_tables, submit_answer
+    sql_query: Optional[str] = None
+    table_name: Optional[str] = None
+    answer: Optional[str] = None
+    reasoning: Optional[str] = None
 ```
 
-**Planted Anomalies** (deterministic, seed=42):
-- 📈 **Revenue Spike**: March 2024 shows 43% increase vs 6-month average
-- 💸 **Negative Margin**: "Premium Wireless Keyboard" (unit_price=$45, cost=$52)
-- ⚠️ **Churn Risk**: Customers with IDs ending in 07, 23, 89 (last order >120 days ago)
-- 🔁 **Duplicate Orders**: Customers 15 and 67 have duplicate entries (same date, same amount)
-
 ---
 
-## Action Space
+## 👁️ Observation Space
 
-Agents can take 4 discrete structured actions:
-
-| Action Type | Fields | Description |
-|------------|--------|-------------|
-| `run_query` | `sql_query` (str) | Execute a SELECT query on the database |
-| `describe_table` | `table_name` (str) | Get schema information for a specific table |
-| `list_tables` | - | List all available tables in the database |
-| `submit_answer` | `answer` (str) | Submit the final analytical answer |
-
-**Additional Fields** (optional for all actions):
-- `reasoning` (str): Agent's internal reasoning (logged but not graded)
-
-**SQL Security**: Only `SELECT` queries are allowed. `INSERT`, `UPDATE`, `DELETE`, `DROP`, and other modifying operations are blocked.
-
----
-
-## Observation Space
-
-Agents receive structured observations after each action:
+**Type**: `structured_text`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `task_id` | str | Identifier of the current task |
-| `task_description` | str | Full task description and requirements |
-| `step_number` | int | Current step count |
-| `max_steps` | int | Maximum allowed steps for this task |
-| `query_result` | QueryResult | Results from the last SQL query (if applicable) |
-| `available_tables` | List[str] | List of all database tables |
-| `schema_info` | Dict | Schema information (if DESCRIBE_TABLE was used) |
-| `message` | str | Feedback message from the environment |
-| `queries_used` | int | Total number of queries executed so far |
-| `answer_submitted` | bool | Whether the final answer has been submitted |
+| `task_id` | str | Current task identifier |
+| `task_description` | str | What the agent must accomplish |
+| `step_number` | int | Current step (1-indexed) |
+| `max_steps` | int | Maximum allowed steps |
+| `query_result` | QueryResult | Results from last SQL query |
+| `available_tables` | List[str] | Tables in database |
+| `schema_info` | Dict | Table schemas if requested |
+| `message` | str | Feedback message |
+| `queries_used` | int | Queries executed so far |
+| `answer_submitted` | bool | Whether answer was submitted |
 
-**QueryResult Structure**:
-- `columns`: List of column names
-- `rows`: List of result rows (each row is a list)
-- `row_count`: Number of rows returned
-- `execution_time_ms`: Query execution time in milliseconds
-- `error`: Error message (if query failed)
-
----
-
-## Reward Function
-
-The environment uses a **shaped reward** system with both intermediate and terminal rewards.
-
-### Intermediate Rewards (during episode)
-- **Table Exploration**: +0.02 for first query to a new table
-- **Successful Query**: +0.01 for valid query execution
-- **Query with Results**: +0.01 additional if query returns data
-- **Failed Query**: -0.02 for SQL errors or validation failures
-
-### Task-Specific Intermediate Rewards
-- **Revenue Summary**: +0.1 for first query to `monthly_revenue`, +0.05 for filtering by year 2023
-- *More task-specific bonuses available during execution*
-
-### Terminal Rewards (at episode end)
-Graded based on accuracy of the submitted answer:
-
-**Revenue Summary (Easy)**:
-- Revenue accuracy: 1.0 (within 1%), 0.5 (within 5%), 0.0 (otherwise)
-- Expenses accuracy: Same scoring
-- Profit accuracy: Same scoring
-- Region correctness: 1.0 (exact match), 0.0 (wrong)
-- **Efficiency penalty**: -0.05 per step beyond 3 steps
-- **Final score**: Mean of component scores minus efficiency penalty
-
-**Customer Churn Risk (Medium)**:
-- Customer ID accuracy: 50% weight (proportion of correct IDs identified)
-- Days-since-order accuracy: 30% weight
-- Recommendation quality: 20% weight (keyword matching)
-
-**Anomaly Investigation (Hard)**:
-- Spike month/year: 20% weight
-- Spike explanation: 10% weight (keyword matching)
-- Negative margin product: 20% weight
-- Margin percentage: 20% weight (with tolerance)
-- Duplicate customer IDs: 30% weight (Jaccard similarity)
-- **Bonus**: +0.1 if agent used window functions
-
-All grading is **deterministic** (no LLM calls) for reproducibility.
-
----
-
-## Tasks
-
-| Task ID | Difficulty | Max Steps | Objective | Grading Criteria |
-|---------|-----------|-----------|-----------|------------------|
-| `revenue_summary` | Easy | 10 | Calculate total revenue, expenses, and profit for 2023; identify top revenue region | 4 numerical accuracy scores + region match - efficiency penalty |
-| `customer_churn_risk` | Medium | 15 | Identify top 3 customers at churn risk (>90 days since last order); provide re-engagement recommendations | Customer ID accuracy (50%) + days accuracy (30%) + recommendation keywords (20%) |
-| `anomaly_investigation` | Hard | 20 | Find revenue spike month, negative margin product with exact %, and duplicate order customers | Multi-component weighted scoring + window function bonus |
-
----
-
-## Setup Instructions
-
-### Option 1: Docker (Recommended)
-
-Build and run with Docker:
-
-```bash
-# Build the image
-docker build -t bizanalyst-env .
-
-# Run the container
-docker run -p 7860:7860 bizanalyst-env
+**Observation Schema (Pydantic)**:
+```python
+class Observation(BaseModel):
+    task_id: str
+    task_description: str
+    step_number: int
+    max_steps: int
+    query_result: Optional[QueryResult] = None
+    available_tables: List[str]
+    schema_info: Optional[Dict[str, Any]] = None
+    message: str
+    queries_used: int
+    answer_submitted: bool
 ```
 
-The server will be available at `http://localhost:7860`
+---
 
-### Option 2: Local Installation
+## 🏆 Tasks & Difficulty
 
-Install dependencies and run locally:
+| Task ID | Difficulty | Max Steps | Description |
+|---------|------------|-----------|-------------|
+| `revenue_summary` | 🟢 Easy | 10 | Calculate 2023 revenue, expenses, profit, and top region |
+| `customer_churn_risk` | 🟡 Medium | 15 | Identify top 3 customers at churn risk (>90 days inactive) |
+| `anomaly_investigation` | 🔴 Hard | 20 | Find revenue spike, negative margin product, duplicate orders |
+
+### Task Details
+
+**Easy - Revenue Summary**
+- Query `monthly_revenue` table for 2023 totals
+- Find which region had highest revenue
+- Submit formatted string answer
+
+**Medium - Customer Churn Risk**
+- Calculate days since last order for each customer
+- Filter customers with >90 days inactive
+- Recommend re-engagement actions
+- Submit JSON array answer
+
+**Hard - Anomaly Investigation**
+- Find month/year with >30% revenue spike
+- Find product with negative profit margin
+- Find customers with duplicate orders
+- Submit JSON object with all findings
+
+---
+
+## 📊 Reward Function
+
+**Type**: Continuous, shaped (0.0 to 1.0)
+
+| Component | Weight | Description |
+|-----------|--------|-------------|
+| Answer Accuracy | 60% | Correct values in answer |
+| Completeness | 25% | All required fields present |
+| Efficiency | 15% | Fewer steps = higher reward |
+
+**Partial Progress Signals**:
+- +0.1 for each successful query
+- +0.05 for exploring relevant tables
+- -0.1 for syntax errors
+- -0.2 for exceeding step limit
+
+---
+
+## 📈 Baseline Scores
+
+Baseline agent using `gpt-4o-mini` (or `llama-3.1-8b-instant` via Groq):
+
+| Task | Score | Steps Used |
+|------|-------|------------|
+| `revenue_summary` | **0.85** | 3 |
+| `customer_churn_risk` | **0.72** | 4 |
+| `anomaly_investigation` | **0.58** | 7 |
+| **Average** | **0.72** | - |
+
+*Scores may vary slightly due to LLM non-determinism.*
+
+---
+
+## 🚀 Quick Start
+
+### 1. Install Dependencies
 
 ```bash
-# Install dependencies
 pip install -r requirements.txt
-
-# Start the server
-uvicorn server:app --host 0.0.0.0 --port 8000
 ```
 
-The server will be available at `http://localhost:8000`
-
-### Option 3: Run Baseline Agent
-
-To evaluate the baseline Llama-3.1-8B agent:
+### 2. Set API Key
 
 ```bash
-# Set your Groq API key (or use the embedded default)
-export GROQ_API_KEY='your-api-key-here'
+# Using OpenAI (recommended)
+export OPENAI_API_KEY="sk-..."
 
-# Start the server (in separate terminal)
-uvicorn server:app --host 0.0.0.0 --port 8000
+# Or using Groq (free alternative)
+export GROQ_API_KEY="gsk_..."
+```
 
-# Run the baseline script
+### 3. Start Server
+
+```bash
+python scout_server.py
+```
+
+Server runs at: **http://localhost:7860**
+
+### 4. Run Baseline
+
+```bash
 python baseline.py
 ```
 
-Results will be saved to `baseline_results.json`
+---
+
+## 🔌 API Endpoints
+
+### OpenEnv Standard Endpoints
+
+```bash
+# Reset environment with a task
+POST /reset
+{"task_id": "revenue_summary"}
+
+# Execute an action
+POST /step
+{"action_type": "run_query", "sql_query": "SELECT * FROM customers LIMIT 5"}
+
+# Get current state
+GET /state
+
+# List all tasks
+GET /tasks
+
+# Grade an answer
+POST /grader
+{"task_id": "revenue_summary", "answer": "Total Revenue: $4821540.23 | ..."}
+
+# Run baseline on all tasks
+POST /baseline
+```
+
+### SCOUT AI Endpoints (Bonus Features)
+
+```bash
+# Start autonomous investigation
+POST /api/scout
+{"question": "Why did revenue drop?", "max_steps": 10}
+
+# Get investigation results
+GET /api/scout/{task_id}
+
+# Stream live reasoning steps
+GET /api/scout/{task_id}/stream
+```
+
+### Interactive Dashboard
+
+Navigate to: **http://localhost:7860/app**
 
 ---
 
-## API Reference
-
-### `GET /`
-Returns environment information card.
-
-```bash
-curl http://localhost:8000/
-```
-
-### `GET /health`
-Health check endpoint.
-
-```bash
-curl http://localhost:8000/health
-```
-
-**Response**:
-```json
-{
-  "status": "ok",
-  "env": "BizAnalyst-Env",
-  "version": "1.0.0"
-}
-```
-
-### `POST /reset`
-Initialize environment with a task.
-
-```bash
-curl -X POST http://localhost:8000/reset \
-  -H "Content-Type: application/json" \
-  -d '{"task_id": "revenue_summary"}'
-```
-
-**Response**: Initial `Observation` object
-
-### `POST /step`
-Execute an action in the environment.
-
-```bash
-# List tables
-curl -X POST http://localhost:8000/step \
-  -H "Content-Type: application/json" \
-  -d '{"action_type": "list_tables"}'
-
-# Run query
-curl -X POST http://localhost:8000/step \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action_type": "run_query",
-    "sql_query": "SELECT * FROM customers LIMIT 5"
-  }'
-
-# Submit answer
-curl -X POST http://localhost:8000/step \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action_type": "submit_answer",
-    "answer": "Total Revenue: $X | Total Expenses: $Y | Net Profit: $Z | Top Region: ABC"
-  }'
-```
-
-**Response**:
-```json
-{
-  "observation": { ... },
-  "reward": { "value": 0.85, "components": {...}, "feedback": "...", "is_terminal": true },
-  "done": true,
-  "info": { "step_count": 5, "queries_executed": 3 }
-}
-```
-
-### `GET /state`
-Get current environment state.
-
-```bash
-curl http://localhost:8000/state
-```
-
-### `GET /tasks`
-List all available tasks with schemas.
-
-```bash
-curl http://localhost:8000/tasks
-```
-
-### `POST /grader`
-Test answer grading without running full episode.
-
-```bash
-curl -X POST http://localhost:8000/grader \
-  -H "Content-Type: application/json" \
-  -d '{
-    "task_id": "revenue_summary",
-    "answer": "Total Revenue: $1000000 | Total Expenses: $800000 | Net Profit: $200000 | Top Region: North"
-  }'
-```
-
-**Response**:
-```json
-{
-  "score": 0.75,
-  "breakdown": {"revenue_score": 1.0, "expenses_score": 0.5, ...},
-  "feedback": "Revenue: 1.00, Expenses: 0.50, ..."
-}
-```
-
-### `POST /baseline`
-Run baseline agent internally on specified tasks.
-
-```bash
-curl -X POST http://localhost:8000/baseline \
-  -H "Content-Type: application/json" \
-  -d '{
-    "task_ids": ["revenue_summary", "customer_churn_risk", "anomaly_investigation"]
-  }'
-```
-
-**Note**: Requires `GROQ_API_KEY` environment variable (or uses embedded default).
-
----
-
-## Baseline Scores
-
-Expected scores for different model tiers:
-
-| Task | Llama-3.1-8B Score | Expected Frontier Score |
-|------|-------------------|------------------------|
-| Revenue Summary | 0.75 - 0.90 | 0.95 - 1.00 |
-| Customer Churn Risk | 0.50 - 0.70 | 0.85 - 0.95 |
-| Anomaly Investigation | 0.40 - 0.65 | 0.80 - 0.95 |
-| **Average** | **0.55 - 0.75** | **0.87 - 0.97** |
-
-*Actual scores depend on model capabilities, prompting strategy, and query efficiency*
-
----
-
-## Testing
-
-Run the test suite with pytest:
-
-```bash
-# Run all tests
-pytest
-
-# Run specific test file
-pytest tests/test_env.py
-
-# Run with verbose output
-pytest -v
-
-# Run with coverage
-pytest --cov=environment --cov=server
-```
-
----
-
-## OpenEnv Validation
-
-Validate the environment configuration:
-
-```bash
-# Install OpenEnv CLI (if not already installed)
-pip install openenv
-
-# Validate the environment
-openenv validate openenv.yaml
-```
-
----
-
-## Project Structure
+## 🏗️ Project Structure
 
 ```
 bizanalyst-env/
-├── Dockerfile                  # Docker container configuration
-├── requirements.txt            # Python dependencies
-├── openenv.yaml               # OpenEnv specification
-├── README.md                  # This file
-├── server.py                  # FastAPI server with all endpoints
-├── baseline.py                # Baseline inference script
 ├── environment/
-│   ├── __init__.py           # Package exports
-│   ├── models.py             # Pydantic models (Action, Observation, Reward)
-│   ├── env.py                # BizAnalystEnv class (reset, step, state)
-│   ├── database.py           # Database manager (schema, seeding)
-│   ├── tasks.py              # Task definitions and graders
-│   └── validators.py         # SQL query validation
-└── tests/
-    ├── test_env.py           # Environment unit tests
-    ├── test_graders.py       # Grader accuracy tests
-    └── test_api.py           # API endpoint tests
+│   ├── env.py           # BizAnalystEnv (step/reset/state)
+│   ├── models.py        # Pydantic models (Action, Observation, Reward)
+│   ├── database.py      # SQLite database manager
+│   └── tasks.py         # Task definitions & graders
+├── agent/
+│   ├── core.py          # SCOUT autonomous agent
+│   ├── memory.py        # Agent memory system
+│   └── analyzer.py      # Business insight analyzer
+├── frontend/
+│   └── index.html       # Interactive dashboard
+├── tests/
+│   └── test_env.py      # Environment tests
+├── scout_server.py      # FastAPI server
+├── baseline.py          # Baseline inference script
+├── openenv.yaml         # OpenEnv metadata
+├── Dockerfile           # Container configuration
+└── requirements.txt     # Dependencies
 ```
 
 ---
 
-## License
+## 📈 Database Schema
 
-MIT License - see LICENSE file for details
+**Northwind-based** business database with planted scenarios:
+
+| Table | Columns | Records |
+|-------|---------|---------|
+| `customers` | customer_id, name, region, segment, signup_date, last_order_date, total_spent, order_count | 93 |
+| `products` | product_id, name, category, unit_price, cost_price, stock_quantity | 69 |
+| `orders` | order_id, customer_id, order_date, status, total_amount, discount_pct | 16,000+ |
+| `order_items` | item_id, order_id, product_id, quantity, unit_price | 600,000+ |
+| `monthly_revenue` | id, month, year, revenue, expenses, profit, region, category | 48 |
+
+### Planted Scenarios (for evaluation)
+
+- 📈 **Revenue Spike**: March 2024 shows >30% anomaly
+- 💸 **Negative Margin**: One product has cost > price
+- ⚠️ **Churn Risk**: Several customers inactive >90 days
+- 🔁 **Duplicate Orders**: Data quality issues present
 
 ---
 
-## Contributing
+## 🔧 Configuration
 
-Contributions welcome! Please open an issue or submit a pull request.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENAI_API_KEY` | - | OpenAI API key (primary) |
+| `GROQ_API_KEY` | - | Groq API key (fallback) |
+| `PORT` | 7860 | Server port |
 
 ---
 
-## Citation
+## 🐳 Docker
 
-If you use BizAnalyst-Env in your research, please cite:
+```bash
+# Build
+docker build -t bizanalyst-env .
 
-```bibtex
-@software{bizanalyst_env_2024,
-  title={BizAnalyst-Env: A Business Intelligence Environment for AI Agents},
-  author={Your Name},
-  year={2024},
-  url={https://github.com/yourusername/bizanalyst-env}
-}
+# Run with OpenAI
+docker run -p 7860:7860 -e OPENAI_API_KEY=sk-... bizanalyst-env
+
+# Run with Groq
+docker run -p 7860:7860 -e GROQ_API_KEY=gsk_... bizanalyst-env
 ```
 
 ---
 
-## Acknowledgments
+## 🧪 Validation
 
-Built with:
-- [FastAPI](https://fastapi.tiangolo.com/) - Modern web framework
-- [Pydantic](https://pydantic-docs.helpmanual.io/) - Data validation
-- [Faker](https://faker.readthedocs.io/) - Fake data generation
-- [Groq API](https://groq.com/) - Baseline agent inference (Llama-3.1-8B)
-- [OpenEnv](https://openenv.dev) - Environment specification standard
+```bash
+# Run tests
+pytest tests/ -v
+
+# Validate OpenEnv spec
+openenv validate
+```
 
 ---
 
-**Questions?** Open an issue or contact the maintainers.
+## 📄 License
 
-**Ready to train agents?** Start the server and begin exploring! 🚀
+MIT License
+
+---
+
+## 🏆 OpenEnv Hackathon
+
+**Domain**: Business Intelligence  
+**Real-world task**: ✅ Yes - simulates actual BI analyst workflows  
+**Difficulty range**: Easy → Medium → Hard  
+**Graders**: Deterministic, 0.0-1.0 scores  
+**Baseline**: Reproducible with OpenAI/Groq
+
+---
+
+**Built for the OpenEnv Hackathon** 🚀

@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Baseline inference script using Groq API (llama-3.1-8b-instant)."""
+"""Baseline inference script using OpenAI API (supports OpenAI and Groq).
+
+Reads API credentials from OPENAI_API_KEY environment variable.
+Falls back to GROQ_API_KEY if OPENAI_API_KEY is not set.
+"""
 
 import os
 import re
@@ -132,13 +136,23 @@ def extract_action(text: str):
 def run_baseline(base_url: str = "http://localhost:7860", task_ids: List[str] = None) -> Dict:
     """Run baseline agent on all tasks and return results."""
 
-    api_key = os.getenv("GROQ_API_KEY")
+    # Support both OPENAI_API_KEY and GROQ_API_KEY (spec requires OPENAI_API_KEY)
+    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")
     if not api_key:
-        print("Error: GROQ_API_KEY environment variable not set")
-        print("Set it with:  $env:GROQ_API_KEY='gsk_...'")
+        print("Error: OPENAI_API_KEY environment variable not set")
+        print("Set it with:  export OPENAI_API_KEY='sk-...'")
+        print("Or use Groq:  export GROQ_API_KEY='gsk_...'")
         sys.exit(1)
 
-    client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
+    # Determine which API to use
+    if os.getenv("OPENAI_API_KEY"):
+        client = OpenAI(api_key=api_key)
+        model = "gpt-4o-mini"
+        provider = "OpenAI"
+    else:
+        client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
+        model = "llama-3.1-8b-instant"
+        provider = "Groq"
 
     if task_ids is None:
         task_ids = ["revenue_summary", "customer_churn_risk", "anomaly_investigation"]
@@ -147,7 +161,7 @@ def run_baseline(base_url: str = "http://localhost:7860", task_ids: List[str] = 
 
     print("\n" + "=" * 80)
     print("BizAnalyst-Env  -  Baseline Evaluation")
-    print("Model: llama-3.1-8b-instant  |  Provider: Groq")
+    print(f"Model: {model}  |  Provider: {provider}")
     print("=" * 80)
 
     for task_id in task_ids:
@@ -184,7 +198,7 @@ def run_baseline(base_url: str = "http://localhost:7860", task_ids: List[str] = 
 
             try:
                 completion = client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
+                    model=model,
                     messages=messages,
                     temperature=0.0,
                     max_tokens=1000

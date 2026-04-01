@@ -1,8 +1,7 @@
 import sqlite3
-import random
 from datetime import datetime, timedelta
-from faker import Faker
 from typing import List, Tuple
+import os
 
 
 def get_reference_date() -> str:
@@ -109,182 +108,61 @@ class DatabaseManager:
         self.conn.commit()
         
     def seed_data(self):
-        """Seed database with deterministic fake data."""
-        # CRITICAL: Set random seed for 100% reproducibility
-        random.seed(42)
-        fake = Faker()
-        Faker.seed(42)
+        """Seed database with real data from Northwind database."""
+        from .northwind_adapter import NorthwindAdapter
+        from .anomaly_planter import AnomalyPlanter
         
         cursor = self.conn.cursor()
         
-        # Define constants
-        regions = ['North', 'South', 'East', 'West']
-        segments = ['Enterprise', 'SMB', 'Consumer']
-        categories = ['Electronics', 'Office Supplies', 'Furniture', 'Software', 'Accessories']
+        # Determine path to Northwind database
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        northwind_path = os.path.join(os.path.dirname(current_dir), 'northwind.db')
         
-        # Reference date for calculations
-        reference_date = datetime.strptime(get_reference_date(), '%Y-%m-%d')
+        if not os.path.exists(northwind_path):
+            raise FileNotFoundError(f"Northwind database not found at: {northwind_path}")
         
-        # 1. Seed customers (200 customers)
-        customers_data = []
-        for i in range(1, 201):
-            customer_id = i
-            name = fake.company()
-            region = regions[i % len(regions)]
-            segment = segments[i % len(segments)]
-            signup_date = fake.date_between(start_date='-3y', end_date='-1y')
-            
-            # Plant churn-risk customers at specific IDs with exact dates
-            if customer_id == 7:
-                # 150 days before reference date
-                last_order_date = (reference_date - timedelta(days=150)).strftime('%Y-%m-%d')
-            elif customer_id == 23:
-                # 135 days before reference date
-                last_order_date = (reference_date - timedelta(days=135)).strftime('%Y-%m-%d')
-            elif customer_id == 89:
-                # 120 days before reference date
-                last_order_date = (reference_date - timedelta(days=120)).strftime('%Y-%m-%d')
-            else:
-                last_order_date = None  # Will be set after orders
-            
-            customers_data.append((
-                customer_id, name, region, segment, 
-                signup_date.strftime('%Y-%m-%d'), last_order_date, 0.0, 0
-            ))
+        # Initialize adapter
+        adapter = NorthwindAdapter(northwind_path)
+        
+        # 1. Load customers from Northwind
+        print("Loading customers from Northwind...")
+        customers_data = adapter.load_customers()
         
         cursor.executemany("""
             INSERT INTO customers (customer_id, name, region, segment, signup_date, 
                                   last_order_date, total_spent, order_count)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, customers_data)
+        print(f"Loaded {len(customers_data)} customers")
         
-        # 2. Seed products (50 products)
-        products_data = []
-        product_names = [
-            "Wireless Mouse", "Mechanical Keyboard", "USB Cable", "HDMI Adapter", "Laptop Stand",
-            "Monitor 24inch", "Webcam HD", "Headphones", "Desk Lamp", "Office Chair",
-            "Standing Desk", "Cable Organizer", "Mouse Pad", "Laptop Bag", "Power Bank",
-            "USB Hub", "Ethernet Cable", "Wireless Charger", "Screen Protector", "Phone Holder",
-            "Notebook Set", "Pen Pack", "Stapler", "Paper Clips", "Sticky Notes",
-            "Whiteboard", "Markers Set", "File Organizer", "Desk Drawer", "Bookshelf",
-            "Printer", "Scanner", "Shredder", "Label Maker", "Calculator",
-            "Desk Calendar", "Wall Clock", "Trash Bin", "Water Bottle", "Coffee Mug",
-            "Desk Mat", "Keyboard Tray", "Monitor Arm", "Footrest", "Lumbar Support",
-            "Premium Wireless Keyboard", "Gaming Mouse", "USB Microphone", "Ring Light", "Document Camera"
-        ]
-        
-        for i in range(50):
-            product_id = i + 1
-            name = product_names[i]
-            category = categories[i % len(categories)]
-            
-            # Plant negative margin product exactly as specified
-            if name == "Premium Wireless Keyboard":
-                unit_price = 45.0
-                cost_price = 52.0
-            else:
-                # Normal pricing
-                unit_price = round(random.uniform(10, 200), 2)
-                cost_price = round(unit_price * random.uniform(0.4, 0.7), 2)
-            
-            stock_quantity = random.randint(0, 500)
-            
-            products_data.append((
-                product_id, name, category, unit_price, cost_price, stock_quantity
-            ))
+        # 2. Load products from Northwind
+        print("Loading products from Northwind...")
+        products_data = adapter.load_products()
         
         cursor.executemany("""
             INSERT INTO products (product_id, name, category, unit_price, cost_price, stock_quantity)
             VALUES (?, ?, ?, ?, ?, ?)
         """, products_data)
+        print(f"Loaded {len(products_data)} products")
         
-        # 3. Seed orders (1000+ orders)
-        orders_data = []
-        order_items_data = []
-        order_statuses = ['completed', 'completed', 'completed', 'completed', 'pending', 'cancelled']
-        
-        order_id = 1
-        item_id = 1
-        
-        start_date = datetime(2022, 1, 1)
-        end_date = datetime(2024, 5, 31)  # Before reference date
-        
-        for i in range(1200):
-            customer_id = random.randint(1, 200)
-            order_date = fake.date_between(start_date=start_date, end_date=end_date)
-            status = random.choice(order_statuses)
-            discount_pct = round(random.choice([0, 0, 0, 5, 10, 15]), 2)
-            
-            # Create order items
-            num_items = random.randint(1, 5)
-            total_amount = 0.0
-            
-            for _ in range(num_items):
-                product_id = random.randint(1, 50)
-                quantity = random.randint(1, 10)
-                
-                # Get product price
-                cursor.execute("SELECT unit_price FROM products WHERE product_id = ?", (product_id,))
-                result = cursor.fetchone()
-                unit_price = result[0] if result else 50.0
-                
-                item_total = unit_price * quantity
-                total_amount += item_total
-                
-                order_items_data.append((
-                    item_id, order_id, product_id, quantity, unit_price
-                ))
-                item_id += 1
-            
-            # Apply discount
-            total_amount = round(total_amount * (1 - discount_pct / 100), 2)
-            
-            orders_data.append((
-                order_id, customer_id, order_date.strftime('%Y-%m-%d'), 
-                status, total_amount, discount_pct
-            ))
-            order_id += 1
+        # 3. Load orders and order items from Northwind
+        print("Loading orders and order items from Northwind...")
+        orders_data, order_items_data, customer_id_map = adapter.load_orders_and_items()
         
         cursor.executemany("""
             INSERT INTO orders (order_id, customer_id, order_date, status, total_amount, discount_pct)
             VALUES (?, ?, ?, ?, ?, ?)
         """, orders_data)
+        print(f"Loaded {len(orders_data)} orders")
         
         cursor.executemany("""
             INSERT INTO order_items (item_id, order_id, product_id, quantity, unit_price)
             VALUES (?, ?, ?, ?, ?)
         """, order_items_data)
+        print(f"Loaded {len(order_items_data)} order items")
         
-        # Plant duplicate orders for customers 15 and 67
-        duplicate_date = '2024-01-15'
-        duplicate_amount = 299.99
-        
-        # Customer 15 - two identical orders
-        cursor.execute("""
-            INSERT INTO orders (order_id, customer_id, order_date, status, total_amount, discount_pct)
-            VALUES (?, 15, ?, 'completed', ?, 0.0)
-        """, (order_id, duplicate_date, duplicate_amount))
-        order_id += 1
-        
-        cursor.execute("""
-            INSERT INTO orders (order_id, customer_id, order_date, status, total_amount, discount_pct)
-            VALUES (?, 15, ?, 'completed', ?, 0.0)
-        """, (order_id, duplicate_date, duplicate_amount))
-        order_id += 1
-        
-        # Customer 67 - two identical orders
-        cursor.execute("""
-            INSERT INTO orders (order_id, customer_id, order_date, status, total_amount, discount_pct)
-            VALUES (?, 67, ?, 'completed', ?, 0.0)
-        """, (order_id, duplicate_date, duplicate_amount))
-        order_id += 1
-        
-        cursor.execute("""
-            INSERT INTO orders (order_id, customer_id, order_date, status, total_amount, discount_pct)
-            VALUES (?, 67, ?, 'completed', ?, 0.0)
-        """, (order_id, duplicate_date, duplicate_amount))
-        
-        # 4. Update customer aggregates (except churn-risk customers who already have dates)
+        # 4. Update customer aggregates from orders
+        print("Calculating customer aggregates...")
         cursor.execute("""
             UPDATE customers
             SET total_spent = (
@@ -299,49 +177,38 @@ class DatabaseManager:
                 WHERE orders.customer_id = customers.customer_id
                 AND orders.status = 'completed'
             ),
-            last_order_date = CASE 
-                WHEN customer_id IN (7, 23, 89) THEN last_order_date
-                ELSE (
-                    SELECT MAX(order_date)
-                    FROM orders
-                    WHERE orders.customer_id = customers.customer_id
-                    AND orders.status = 'completed'
-                )
-            END
+            last_order_date = (
+                SELECT MAX(order_date)
+                FROM orders
+                WHERE orders.customer_id = customers.customer_id
+                AND orders.status = 'completed'
+            )
         """)
         
-        # 5. Seed monthly_revenue with exact spike anomaly
-        monthly_revenue_data = []
-        revenue_id = 1
+        # 5. Calculate monthly revenue aggregations
+        print("Calculating monthly revenue aggregations...")
+        monthly_revenue_data = adapter.calculate_monthly_revenue(
+            orders_data, customers_data, order_items_data, products_data
+        )
         
-        for year in [2022, 2023, 2024]:
-            for month in range(1, 13):
-                if year == 2024 and month > 5:  # Only up to May 2024
-                    break
-                    
-                for region in regions:
-                    for category in categories:
-                        # Plant exact revenue spike for March 2024
-                        if year == 2024 and month == 3:
-                            revenue = 110000.0  # ~43% above average of 50000-80000
-                        else:
-                            revenue = round(random.uniform(50000, 80000), 2)
-                        
-                        expenses = round(revenue * random.uniform(0.6, 0.75), 2)
-                        profit = round(revenue - expenses, 2)
-                        
-                        monthly_revenue_data.append((
-                            revenue_id, month, year, revenue, expenses, 
-                            profit, region, category
-                        ))
-                        revenue_id += 1
-        
-        cursor.executemany("""
-            INSERT INTO monthly_revenue (id, month, year, revenue, expenses, profit, region, category)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, monthly_revenue_data)
+        if monthly_revenue_data:
+            cursor.executemany("""
+                INSERT INTO monthly_revenue (id, month, year, revenue, expenses, profit, region, category)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, monthly_revenue_data)
+            print(f"Loaded {len(monthly_revenue_data)} monthly revenue records")
         
         self.conn.commit()
+        
+        # 6. Plant anomalies for testing
+        print("\nPlanting anomalies for testing tasks...")
+        planter = AnomalyPlanter(self.conn)
+        planter.plant_all_anomalies()
+        
+        # 7. Verify anomalies
+        planter.verify_anomalies()
+        
+        print("[SUCCESS] Data seeding complete!")
         
     def execute_query(self, query: str) -> List[sqlite3.Row]:
         """Execute a SELECT query and return results.
