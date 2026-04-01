@@ -1,10 +1,10 @@
-name: BizAnalyst-Env
+name: SCOUT-AI-BizAnalyst
 version: "1.0.0"
 description: >
-  A business intelligence environment where AI agents act as data
-  analysts. Agents query a realistic multi-table SQLite database to
-  answer business questions, identify customer churn risk, and detect
-  financial anomalies. Models real-world BI analyst workflows.
+  SCOUT AI - Autonomous Business Analyst Agent. AI agents learn to analyze 
+  business data autonomously: querying databases, detecting anomalies, 
+  identifying churn risk, and generating actionable recommendations. 
+  Real-world BI analyst training environment.
 domain: business_intelligence
 real_world_task: true
 tasks:
@@ -35,5 +35,5 @@ endpoints:
   tasks: GET /tasks
   grader: POST /grader
   baseline: POST /baseline
-tags: [business-intelligence, sql, analytics, data-analysis, openenv]
+tags: [business-intelligence, sql, analytics, autonomous-agent, openenv]
 

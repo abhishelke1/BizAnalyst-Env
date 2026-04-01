@@ -17,6 +17,7 @@ from datetime import datetime
 from environment import BizAnalystEnv, Action, ActionType
 from agent.core import ScoutAgent, AgentResult
 from agent.memory import AgentMemory
+from agent.scanner import AutoScanner
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -332,6 +333,77 @@ async def get_demo_tasks():
                 "expected_steps": 4
             }
         ]
+    }
+
+
+# ─────────────────────────────────────────────────────────────
+# AUTO-SCAN ENDPOINT (Critical for winning demo)
+# ─────────────────────────────────────────────────────────────
+
+@app.get("/api/scan")
+async def auto_scan():
+    """
+    AUTO-DISCOVERY: Scan database for business issues without user input.
+    
+    This is the WOW MOMENT - AI takes initiative and finds problems
+    before anyone asks. Returns severity-ranked alerts with recommendations.
+    """
+    try:
+        scanner = AutoScanner(execute_sql)
+        results = scanner.scan_all()
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Scan failed: {str(e)}")
+
+
+@app.get("/api/scan/{alert_id}/investigate")
+async def investigate_alert(alert_id: str, background_tasks: BackgroundTasks):
+    """
+    Investigate a specific alert found by auto-scan.
+    
+    Takes an alert ID and runs a full SCOUT investigation to get
+    root cause and recommendations.
+    """
+    # Map alert categories to investigation questions
+    investigation_map = {
+        "churn": "Analyze our customers at churn risk in detail. Who are they, how much revenue is at risk, and what specific actions should we take for each?",
+        "revenue": "Investigate the revenue anomaly. What caused it? Is it repeatable? What should we do?",
+        "margin": "Analyze the negative margin products. Why is pricing wrong? What's the business impact? Should we fix pricing or discontinue?",
+        "data_quality": "Investigate the data quality issues. What's the scope? How does it affect our reporting?"
+    }
+    
+    # Determine category from alert_id
+    category = "revenue"  # default
+    if "churn" in alert_id:
+        category = "churn"
+    elif "margin" in alert_id:
+        category = "margin"
+    elif "duplicate" in alert_id or "data" in alert_id:
+        category = "data_quality"
+    elif "rev" in alert_id:
+        category = "revenue"
+    
+    question = investigation_map.get(category, investigation_map["revenue"])
+    
+    # Start investigation
+    task_id = str(uuid.uuid4())[:8]
+    tasks_store[task_id] = {
+        "status": "running",
+        "question": question,
+        "max_steps": 8,
+        "started_at": datetime.now().isoformat(),
+        "alert_id": alert_id,
+        "steps": [],
+        "result": None
+    }
+    
+    background_tasks.add_task(run_scout_investigation, task_id, question, 8)
+    
+    return {
+        "task_id": task_id,
+        "status": "investigating",
+        "alert_id": alert_id,
+        "question": question
     }
 
 

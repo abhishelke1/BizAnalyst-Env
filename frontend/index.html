@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SCOUT AI - Business Analyst</title>
+    <title>SCOUT AI - Autonomous Business Intelligence</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -12,13 +12,16 @@
     <style>
         body { font-family: 'Inter', sans-serif; }
         .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-        .glass { background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); }
+        .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); }
         @keyframes pulse-ring { 0% { transform: scale(0.8); opacity: 1; } 100% { transform: scale(1.3); opacity: 0; } }
-        @keyframes typing { from { width: 0 } to { width: 100% } }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .animate-pulse-ring { animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite; }
         .step-enter { animation: slideIn 0.3s ease-out; }
-        @keyframes slideIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        .typing-effect { overflow: hidden; white-space: nowrap; animation: typing 1s steps(40, end); }
+        .fade-in { animation: fadeIn 0.5s ease-out; }
+        .alert-critical { border-left: 4px solid #ef4444; background: rgba(239, 68, 68, 0.1); }
+        .alert-warning { border-left: 4px solid #f59e0b; background: rgba(245, 158, 11, 0.1); }
+        .alert-info { border-left: 4px solid #3b82f6; background: rgba(59, 130, 246, 0.1); }
     </style>
 </head>
 <body class="bg-gray-900 text-white min-h-screen">
@@ -39,36 +42,68 @@
             ANALYZE: { icon: '📈', color: 'text-cyan-400', bg: 'bg-cyan-500/20' }
         };
 
-        // Demo questions
-        const demoQuestions = [
-            "Why did revenue change between 2023 and 2024?",
-            "Which customers are at risk of churning?",
-            "Are there products with pricing problems?",
-            "Find any anomalies in our business data",
-            "How do different regions compare?"
-        ];
+        // Severity styling
+        const severityConfig = {
+            critical: { bg: 'alert-critical', icon: '🔴', label: 'CRITICAL', textColor: 'text-red-400' },
+            warning: { bg: 'alert-warning', icon: '🟡', label: 'WARNING', textColor: 'text-yellow-400' },
+            info: { bg: 'alert-info', icon: '🔵', label: 'INFO', textColor: 'text-blue-400' }
+        };
 
         function App() {
-            const [view, setView] = useState('home'); // home, investigating, result
-            const [question, setQuestion] = useState('');
+            const [view, setView] = useState('dashboard'); // dashboard, investigating, result
+            const [scanResult, setScanResult] = useState(null);
+            const [isScanning, setIsScanning] = useState(true);
+            const [selectedAlert, setSelectedAlert] = useState(null);
             const [taskId, setTaskId] = useState(null);
             const [steps, setSteps] = useState([]);
             const [result, setResult] = useState(null);
-            const [isLoading, setIsLoading] = useState(false);
+            const [customQuestion, setCustomQuestion] = useState('');
             const stepsEndRef = useRef(null);
 
             const API_URL = window.location.origin;
+
+            // Auto-scan on load (THE WOW MOMENT)
+            useEffect(() => {
+                runAutoScan();
+            }, []);
 
             // Scroll to bottom when new steps arrive
             useEffect(() => {
                 stepsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
             }, [steps]);
 
-            const startInvestigation = async (q) => {
-                const questionToUse = q || question;
-                if (!questionToUse.trim()) return;
+            const runAutoScan = async () => {
+                setIsScanning(true);
+                try {
+                    const response = await fetch(`${API_URL}/api/scan`);
+                    const data = await response.json();
+                    setScanResult(data);
+                } catch (error) {
+                    console.error('Scan error:', error);
+                }
+                setIsScanning(false);
+            };
 
-                setIsLoading(true);
+            const investigateAlert = async (alert) => {
+                setSelectedAlert(alert);
+                setView('investigating');
+                setSteps([]);
+                setResult(null);
+
+                try {
+                    const response = await fetch(`${API_URL}/api/scan/${alert.id}/investigate`);
+                    const data = await response.json();
+                    setTaskId(data.task_id);
+                    pollResults(data.task_id);
+                } catch (error) {
+                    console.error('Error:', error);
+                }
+            };
+
+            const startCustomInvestigation = async () => {
+                if (!customQuestion.trim()) return;
+                
+                setSelectedAlert({ title: customQuestion, severity: 'info' });
                 setView('investigating');
                 setSteps([]);
                 setResult(null);
@@ -77,17 +112,13 @@
                     const response = await fetch(`${API_URL}/api/scout`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ question: questionToUse, max_steps: 10 })
+                        body: JSON.stringify({ question: customQuestion, max_steps: 10 })
                     });
-                    
                     const data = await response.json();
                     setTaskId(data.task_id);
-                    
-                    // Start polling for results
                     pollResults(data.task_id);
                 } catch (error) {
                     console.error('Error:', error);
-                    setIsLoading(false);
                 }
             };
 
@@ -102,14 +133,11 @@
                         if (data.status === 'complete') {
                             setResult(data);
                             setView('result');
-                            setIsLoading(false);
                             return;
                         } else if (data.status === 'error') {
-                            setIsLoading(false);
                             return;
                         }
                         
-                        // Continue polling
                         setTimeout(poll, 1000);
                     } catch (error) {
                         console.error('Poll error:', error);
@@ -120,151 +148,218 @@
                 poll();
             };
 
-            const goHome = () => {
-                setView('home');
+            const goToDashboard = () => {
+                setView('dashboard');
                 setSteps([]);
                 setResult(null);
-                setQuestion('');
+                setSelectedAlert(null);
+                setCustomQuestion('');
             };
 
-            // HOME VIEW
-            if (view === 'home') {
+            // DASHBOARD VIEW - Shows auto-discovered alerts
+            if (view === 'dashboard') {
                 return (
-                    <div className="min-h-screen flex flex-col items-center justify-center p-8">
-                        {/* Hero */}
-                        <div className="text-center mb-12">
-                            <div className="flex items-center justify-center mb-4">
-                                <div className="w-16 h-16 rounded-full gradient-bg flex items-center justify-center text-3xl">
+                    <div className="min-h-screen p-6">
+                        {/* Header */}
+                        <div className="flex items-center justify-between mb-8">
+                            <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 rounded-xl gradient-bg flex items-center justify-center text-2xl">
                                     🔍
                                 </div>
+                                <div>
+                                    <h1 className="text-2xl font-bold">SCOUT AI</h1>
+                                    <p className="text-gray-400 text-sm">Autonomous Business Intelligence</p>
+                                </div>
                             </div>
-                            <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-                                SCOUT AI
-                            </h1>
-                            <p className="text-xl text-gray-400 mb-2">
-                                Your AI Business Analyst That Never Sleeps
-                            </p>
-                            <p className="text-gray-500">
-                                From question to decision in 30 seconds
-                            </p>
+                            <button
+                                onClick={runAutoScan}
+                                disabled={isScanning}
+                                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm flex items-center gap-2 transition"
+                            >
+                                {isScanning ? (
+                                    <>
+                                        <span className="animate-spin">⟳</span>
+                                        Scanning...
+                                    </>
+                                ) : (
+                                    <>🔄 Rescan</>
+                                )}
+                            </button>
                         </div>
 
-                        {/* Search Box */}
-                        <div className="w-full max-w-2xl mb-8">
-                            <div className="relative">
+                        {/* Custom Question Input */}
+                        <div className="mb-8 p-4 bg-gray-800/50 rounded-xl border border-gray-700">
+                            <p className="text-sm text-gray-400 mb-3">Or ask your own question:</p>
+                            <div className="flex gap-3">
                                 <input
                                     type="text"
-                                    value={question}
-                                    onChange={(e) => setQuestion(e.target.value)}
-                                    onKeyPress={(e) => e.key === 'Enter' && startInvestigation()}
-                                    placeholder="Ask a business question..."
-                                    className="w-full px-6 py-4 bg-gray-800 border border-gray-700 rounded-2xl text-lg focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20"
+                                    value={customQuestion}
+                                    onChange={(e) => setCustomQuestion(e.target.value)}
+                                    onKeyPress={(e) => e.key === 'Enter' && startCustomInvestigation()}
+                                    placeholder="Why did revenue drop last quarter?"
+                                    className="flex-1 px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg focus:outline-none focus:border-purple-500"
                                 />
                                 <button
-                                    onClick={() => startInvestigation()}
-                                    disabled={!question.trim()}
-                                    className="absolute right-2 top-2 px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl font-semibold disabled:opacity-50 hover:opacity-90 transition"
+                                    onClick={startCustomInvestigation}
+                                    disabled={!customQuestion.trim()}
+                                    className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg font-semibold disabled:opacity-50 hover:opacity-90 transition"
                                 >
                                     Investigate
                                 </button>
                             </div>
                         </div>
 
-                        {/* Demo Questions */}
-                        <div className="w-full max-w-2xl">
-                            <p className="text-gray-500 text-sm mb-3">Try these examples:</p>
-                            <div className="flex flex-wrap gap-2">
-                                {demoQuestions.map((q, i) => (
-                                    <button
-                                        key={i}
-                                        onClick={() => {
-                                            setQuestion(q);
-                                            startInvestigation(q);
-                                        }}
-                                        className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-full text-sm text-gray-300 transition"
-                                    >
-                                        {q}
-                                    </button>
-                                ))}
+                        {/* Summary Stats */}
+                        {scanResult && (
+                            <div className="grid grid-cols-4 gap-4 mb-8 fade-in">
+                                <div className="p-4 bg-gray-800/50 rounded-xl border border-gray-700">
+                                    <div className="text-3xl font-bold text-white">{scanResult.total_alerts}</div>
+                                    <div className="text-gray-400 text-sm">Total Issues Found</div>
+                                </div>
+                                <div className="p-4 bg-red-500/10 rounded-xl border border-red-500/30">
+                                    <div className="text-3xl font-bold text-red-400">{scanResult.critical}</div>
+                                    <div className="text-gray-400 text-sm">Critical</div>
+                                </div>
+                                <div className="p-4 bg-yellow-500/10 rounded-xl border border-yellow-500/30">
+                                    <div className="text-3xl font-bold text-yellow-400">{scanResult.warning}</div>
+                                    <div className="text-gray-400 text-sm">Warnings</div>
+                                </div>
+                                <div className="p-4 bg-blue-500/10 rounded-xl border border-blue-500/30">
+                                    <div className="text-3xl font-bold text-blue-400">{scanResult.info}</div>
+                                    <div className="text-gray-400 text-sm">Info</div>
+                                </div>
                             </div>
-                        </div>
+                        )}
 
-                        {/* Features */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16 w-full max-w-4xl">
-                            <div className="p-6 bg-gray-800/50 rounded-xl border border-gray-700">
-                                <div className="text-3xl mb-3">🔄</div>
-                                <h3 className="font-semibold mb-2">Autonomous Investigation</h3>
-                                <p className="text-sm text-gray-400">Chains multiple queries to find root causes</p>
+                        {/* Executive Summary */}
+                        {scanResult && (
+                            <div className="mb-8 p-4 bg-gray-800 rounded-xl border border-gray-700 fade-in">
+                                <h2 className="font-semibold mb-2 flex items-center gap-2">
+                                    <span>📋</span> Executive Summary
+                                </h2>
+                                <p className="text-gray-300">{scanResult.summary}</p>
                             </div>
-                            <div className="p-6 bg-gray-800/50 rounded-xl border border-gray-700">
-                                <div className="text-3xl mb-3">💡</div>
-                                <h3 className="font-semibold mb-2">Live Reasoning</h3>
-                                <p className="text-sm text-gray-400">Watch the AI think and analyze in real-time</p>
+                        )}
+
+                        {/* Alerts List */}
+                        {scanResult && (
+                            <div className="space-y-4">
+                                <h2 className="font-semibold text-lg flex items-center gap-2">
+                                    <span>⚠️</span> Issues Requiring Attention
+                                </h2>
+                                
+                                {scanResult.alerts.map((alert, i) => {
+                                    const sev = severityConfig[alert.severity] || severityConfig.info;
+                                    return (
+                                        <div 
+                                            key={alert.id} 
+                                            className={`p-4 rounded-xl ${sev.bg} step-enter cursor-pointer hover:scale-[1.01] transition-transform`}
+                                            style={{ animationDelay: `${i * 100}ms` }}
+                                            onClick={() => investigateAlert(alert)}
+                                        >
+                                            <div className="flex items-start justify-between">
+                                                <div className="flex-1">
+                                                    <div className="flex items-center gap-2 mb-2">
+                                                        <span>{sev.icon}</span>
+                                                        <span className={`text-xs font-semibold ${sev.textColor}`}>{sev.label}</span>
+                                                        <span className="text-gray-500 text-xs">• {alert.category}</span>
+                                                    </div>
+                                                    <h3 className="font-semibold text-lg mb-1">{alert.title}</h3>
+                                                    <p className="text-gray-400 text-sm mb-3">{alert.description}</p>
+                                                    
+                                                    <div className="flex items-center gap-4 text-sm">
+                                                        <div className="flex items-center gap-1">
+                                                            <span className="text-gray-500">Metric:</span>
+                                                            <span className="font-semibold text-white">{alert.metric}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1">
+                                                            <span className="text-gray-500">Impact:</span>
+                                                            <span className={`font-semibold ${sev.textColor}`}>{alert.impact}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <button className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition flex items-center gap-2">
+                                                    Investigate <span>→</span>
+                                                </button>
+                                            </div>
+                                            
+                                            <div className="mt-3 pt-3 border-t border-white/10">
+                                                <div className="flex items-center gap-2 text-sm">
+                                                    <span className="text-purple-400">💡</span>
+                                                    <span className="text-gray-300">{alert.recommendation}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
                             </div>
-                            <div className="p-6 bg-gray-800/50 rounded-xl border border-gray-700">
-                                <div className="text-3xl mb-3">🎯</div>
-                                <h3 className="font-semibold mb-2">Actionable Insights</h3>
-                                <p className="text-sm text-gray-400">Get recommendations, not just data</p>
+                        )}
+
+                        {/* Loading State */}
+                        {isScanning && !scanResult && (
+                            <div className="flex flex-col items-center justify-center py-20">
+                                <div className="w-16 h-16 rounded-full gradient-bg flex items-center justify-center text-3xl animate-pulse mb-4">
+                                    🔍
+                                </div>
+                                <p className="text-gray-400">Scanning database for issues...</p>
+                                <p className="text-gray-500 text-sm mt-2">SCOUT is analyzing your business data autonomously</p>
                             </div>
-                        </div>
+                        )}
                     </div>
                 );
             }
 
-            // INVESTIGATING VIEW
+            // INVESTIGATING VIEW - Live reasoning display
             if (view === 'investigating') {
                 return (
-                    <div className="min-h-screen p-8">
+                    <div className="min-h-screen p-6">
                         {/* Header */}
-                        <div className="flex items-center justify-between mb-8">
-                            <div>
-                                <h2 className="text-2xl font-bold">🔍 Investigating...</h2>
-                                <p className="text-gray-400 mt-1">"{question}"</p>
+                        <div className="flex items-center gap-4 mb-8">
+                            <button onClick={goToDashboard} className="p-2 hover:bg-gray-800 rounded-lg transition">
+                                ← Back
+                            </button>
+                            <div className="flex-1">
+                                <h1 className="text-xl font-bold">Investigating</h1>
+                                <p className="text-gray-400 text-sm">{selectedAlert?.title}</p>
                             </div>
-                            <div className="flex items-center space-x-2">
-                                <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>
-                                <span className="text-green-400 text-sm">Agent Active</span>
+                            <div className="flex items-center gap-2">
+                                <div className="w-3 h-3 rounded-full bg-purple-500 animate-pulse"></div>
+                                <span className="text-sm text-gray-400">Live reasoning</span>
                             </div>
                         </div>
 
-                        {/* Steps */}
-                        <div className="max-w-4xl mx-auto space-y-4">
-                            {steps.map((step, index) => {
-                                const config = stepConfig[step.type] || stepConfig.THINK;
+                        {/* Steps Display */}
+                        <div className="max-w-3xl mx-auto space-y-4">
+                            {steps.map((step, i) => {
+                                const config = stepConfig[step.step_type] || stepConfig.THINK;
                                 return (
                                     <div 
-                                        key={index} 
-                                        className={`p-4 rounded-xl border border-gray-700 step-enter ${config.bg}`}
+                                        key={i} 
+                                        className={`p-4 rounded-xl border border-gray-700 ${config.bg} step-enter`}
+                                        style={{ animationDelay: `${i * 100}ms` }}
                                     >
-                                        <div className="flex items-start space-x-3">
-                                            <span className="text-2xl">{config.icon}</span>
+                                        <div className="flex items-start gap-3">
+                                            <div className={`w-10 h-10 rounded-lg ${config.bg} flex items-center justify-center text-xl`}>
+                                                {config.icon}
+                                            </div>
                                             <div className="flex-1">
-                                                <div className="flex items-center space-x-2 mb-1">
-                                                    <span className={`font-semibold ${config.color}`}>
-                                                        {step.type}
-                                                    </span>
-                                                    <span className="text-xs text-gray-500">
-                                                        Step {step.step}
-                                                    </span>
+                                                <div className={`text-sm font-semibold ${config.color} mb-1`}>
+                                                    Step {step.step_num} • {step.step_type}
                                                 </div>
-                                                <p className="text-gray-300 whitespace-pre-wrap">
-                                                    {step.content}
-                                                </p>
-                                                {step.data && step.data.rows && (
-                                                    <div className="mt-2 p-2 bg-gray-900/50 rounded text-xs overflow-x-auto">
-                                                        <table className="w-full">
-                                                            <tbody>
-                                                                {step.data.rows.slice(0, 3).map((row, i) => (
-                                                                    <tr key={i}>
-                                                                        {Object.entries(row).map(([k, v], j) => (
-                                                                            <td key={j} className="px-2 py-1 text-gray-400">
-                                                                                <span className="text-gray-600">{k}:</span> {String(v)}
-                                                                            </td>
-                                                                        ))}
-                                                                    </tr>
-                                                                ))}
-                                                            </tbody>
-                                                        </table>
+                                                <p className="text-gray-300 whitespace-pre-wrap">{step.content}</p>
+                                                
+                                                {step.data?.sql && (
+                                                    <pre className="mt-2 p-3 bg-black/30 rounded-lg text-xs text-blue-300 overflow-x-auto">
+                                                        {step.data.sql}
+                                                    </pre>
+                                                )}
+                                                
+                                                {step.data?.rows && step.data.rows.length > 0 && (
+                                                    <div className="mt-2 p-3 bg-black/30 rounded-lg text-xs overflow-x-auto">
+                                                        <div className="text-green-400 mb-1">
+                                                            ✓ {step.data.row_count} rows returned
+                                                        </div>
                                                     </div>
                                                 )}
                                             </div>
@@ -273,157 +368,116 @@
                                 );
                             })}
                             
-                            {isLoading && (
-                                <div className="flex items-center justify-center p-8">
-                                    <div className="relative">
-                                        <div className="w-12 h-12 rounded-full gradient-bg animate-pulse"></div>
-                                        <div className="absolute inset-0 w-12 h-12 rounded-full gradient-bg animate-pulse-ring"></div>
+                            {steps.length === 0 && (
+                                <div className="text-center py-12">
+                                    <div className="w-16 h-16 mx-auto rounded-full gradient-bg flex items-center justify-center text-3xl animate-pulse mb-4">
+                                        🧠
                                     </div>
+                                    <p className="text-gray-400">SCOUT is analyzing...</p>
                                 </div>
                             )}
+                            
                             <div ref={stepsEndRef} />
                         </div>
                     </div>
                 );
             }
 
-            // RESULT VIEW
-            if (view === 'result' && result) {
-                const rec = result.recommendations || {};
+            // RESULT VIEW - Final answer with recommendations
+            if (view === 'result') {
                 return (
-                    <div className="min-h-screen p-8">
+                    <div className="min-h-screen p-6">
                         {/* Header */}
-                        <div className="flex items-center justify-between mb-8">
-                            <button 
-                                onClick={goHome}
-                                className="flex items-center space-x-2 text-gray-400 hover:text-white transition"
-                            >
-                                <span>←</span>
-                                <span>New Investigation</span>
+                        <div className="flex items-center gap-4 mb-8">
+                            <button onClick={goToDashboard} className="p-2 hover:bg-gray-800 rounded-lg transition">
+                                ← Back to Dashboard
                             </button>
-                            <div className="flex items-center space-x-2">
-                                <span className="text-green-400">✓ Complete</span>
-                                <span className="text-gray-500">|</span>
-                                <span className="text-gray-400">{result.execution_time?.toFixed(1)}s</span>
+                            <div className="flex-1">
+                                <h1 className="text-xl font-bold">Investigation Complete</h1>
+                                <p className="text-gray-400 text-sm">{selectedAlert?.title}</p>
+                            </div>
+                            <div className="flex items-center gap-2 text-green-400">
+                                <span>✓</span>
+                                <span className="text-sm">Complete</span>
                             </div>
                         </div>
 
-                        <div className="max-w-4xl mx-auto">
-                            {/* Question */}
-                            <div className="mb-8">
-                                <p className="text-gray-500 text-sm mb-2">Question</p>
-                                <h2 className="text-2xl font-bold">{result.question}</h2>
-                            </div>
-
-                            {/* Main Answer Card */}
-                            <div className="p-6 bg-gradient-to-br from-purple-500/20 to-pink-500/20 rounded-2xl border border-purple-500/30 mb-8">
-                                <div className="flex items-start justify-between mb-4">
-                                    <div>
-                                        <span className="px-3 py-1 bg-purple-500/30 rounded-full text-purple-300 text-sm">
-                                            Key Finding
+                        <div className="max-w-3xl mx-auto space-y-6">
+                            {/* Confidence Badge */}
+                            {result && (
+                                <div className="flex items-center gap-4 mb-4">
+                                    <div className="px-4 py-2 bg-green-500/20 border border-green-500/30 rounded-lg">
+                                        <span className="text-green-400 font-semibold">
+                                            {Math.round((result.confidence || 0.75) * 100)}% Confidence
                                         </span>
                                     </div>
-                                    <div className="flex items-center space-x-1">
-                                        <span className="text-sm text-gray-400">Confidence:</span>
-                                        <span className={`font-bold ${result.confidence > 0.7 ? 'text-green-400' : 'text-yellow-400'}`}>
-                                            {(result.confidence * 100).toFixed(0)}%
-                                        </span>
+                                    <div className="text-sm text-gray-400">
+                                        {result.total_queries || steps.filter(s => s.step_type === 'QUERY').length} queries executed • 
+                                        {result.execution_time ? ` ${result.execution_time.toFixed(1)}s` : ''}
                                     </div>
                                 </div>
-                                <p className="text-xl leading-relaxed whitespace-pre-wrap">
-                                    {result.answer}
-                                </p>
+                            )}
+
+                            {/* Main Answer */}
+                            <div className="p-6 bg-gradient-to-br from-purple-500/20 to-pink-500/20 rounded-xl border border-purple-500/30 fade-in">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <span className="text-2xl">🎯</span>
+                                    <h2 className="text-xl font-bold">Key Findings</h2>
+                                </div>
+                                <div className="text-gray-200 whitespace-pre-wrap leading-relaxed">
+                                    {result?.answer || 'Analysis complete. See recommendations below.'}
+                                </div>
                             </div>
 
                             {/* Recommendations */}
-                            {rec.actions && rec.actions.length > 0 && (
-                                <div className="mb-8">
-                                    <h3 className="text-lg font-semibold mb-4 flex items-center">
-                                        <span className="mr-2">🎯</span>
-                                        Recommended Actions
-                                    </h3>
+                            {result?.recommendations && (
+                                <div className="p-6 bg-gray-800 rounded-xl border border-gray-700 fade-in">
+                                    <div className="flex items-center gap-2 mb-4">
+                                        <span className="text-2xl">💡</span>
+                                        <h2 className="text-xl font-bold">Recommended Actions</h2>
+                                    </div>
                                     <div className="space-y-3">
-                                        {rec.actions.map((action, i) => (
-                                            <div 
-                                                key={i}
-                                                className="p-4 bg-gray-800 rounded-xl border-l-4 border-purple-500"
-                                            >
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <span className="font-semibold">{action.action}</span>
-                                                    <span className={`px-2 py-1 rounded text-xs ${
-                                                        action.priority === 'Critical' ? 'bg-red-500/20 text-red-400' :
-                                                        action.priority === 'High' ? 'bg-orange-500/20 text-orange-400' :
-                                                        'bg-blue-500/20 text-blue-400'
-                                                    }`}>
-                                                        {action.priority}
-                                                    </span>
-                                                </div>
-                                                <p className="text-sm text-gray-400">{action.reason}</p>
+                                        {(result.recommendations.actions || []).map((action, i) => (
+                                            <div key={i} className="flex items-start gap-3 p-3 bg-gray-700/50 rounded-lg">
+                                                <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                                                    action.priority === 'HIGH' ? 'bg-red-500/20 text-red-400' :
+                                                    action.priority === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-400' :
+                                                    'bg-blue-500/20 text-blue-400'
+                                                }`}>
+                                                    {action.priority || 'ACTION'}
+                                                </span>
+                                                <span className="text-gray-200">{action.action || action}</span>
                                             </div>
                                         ))}
                                     </div>
                                 </div>
                             )}
 
-                            {/* Insights */}
-                            {result.insights && result.insights.length > 0 && (
-                                <div className="mb-8">
-                                    <h3 className="text-lg font-semibold mb-4 flex items-center">
-                                        <span className="mr-2">💡</span>
-                                        Insights Discovered
-                                    </h3>
-                                    <div className="grid gap-4">
-                                        {result.insights.map((insight, i) => (
-                                            <div key={i} className="p-4 bg-gray-800 rounded-xl">
-                                                <p className="font-medium mb-2">{insight.finding}</p>
-                                                <p className="text-sm text-gray-400">{insight.evidence}</p>
-                                                {insight.recommendation && (
-                                                    <p className="text-sm text-purple-400 mt-2">
-                                                        → {insight.recommendation}
-                                                    </p>
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Investigation Steps (Collapsible) */}
-                            <details className="mb-8">
-                                <summary className="cursor-pointer text-gray-400 hover:text-white transition">
-                                    View Investigation Steps ({result.steps?.length || 0} steps, {result.total_queries} queries)
+                            {/* Steps Summary */}
+                            <details className="p-4 bg-gray-800/50 rounded-xl border border-gray-700">
+                                <summary className="cursor-pointer font-semibold text-gray-400 hover:text-white">
+                                    View {steps.length} reasoning steps
                                 </summary>
                                 <div className="mt-4 space-y-3">
-                                    {(result.steps || []).map((step, i) => {
-                                        const config = stepConfig[step.type] || stepConfig.THINK;
+                                    {steps.map((step, i) => {
+                                        const config = stepConfig[step.step_type] || stepConfig.THINK;
                                         return (
-                                            <div key={i} className={`p-3 rounded-lg ${config.bg}`}>
-                                                <div className="flex items-center space-x-2 mb-1">
-                                                    <span>{config.icon}</span>
-                                                    <span className={`text-sm font-medium ${config.color}`}>{step.type}</span>
+                                            <div key={i} className="flex items-start gap-3 text-sm">
+                                                <span>{config.icon}</span>
+                                                <div>
+                                                    <span className={config.color}>{step.step_type}</span>
+                                                    <span className="text-gray-500"> — </span>
+                                                    <span className="text-gray-400">{step.content.substring(0, 100)}...</span>
                                                 </div>
-                                                <p className="text-sm text-gray-300 whitespace-pre-wrap">{step.content}</p>
                                             </div>
                                         );
                                     })}
                                 </div>
                             </details>
-
-                            {/* New Investigation Button */}
-                            <div className="text-center">
-                                <button
-                                    onClick={goHome}
-                                    className="px-8 py-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl font-semibold hover:opacity-90 transition"
-                                >
-                                    Start New Investigation
-                                </button>
-                            </div>
                         </div>
                     </div>
                 );
             }
-
-            return null;
         }
 
         ReactDOM.createRoot(document.getElementById('root')).render(<App />);
