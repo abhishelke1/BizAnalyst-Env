@@ -112,5 +112,7 @@ dmypy.json
 
 # Project specific
 *.sqlite
-*.db
 baseline_results.json
+
+# Keep northwind.db - required for the environment!
+!northwind.db

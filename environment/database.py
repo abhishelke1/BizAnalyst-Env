@@ -4,6 +4,36 @@ from typing import List, Tuple
 import os
 
 
+def get_northwind_path() -> str:
+    """Find the northwind.db file in multiple possible locations.
+    
+    Returns:
+        Path to northwind.db
+        
+    Raises:
+        FileNotFoundError: If database not found in any location
+    """
+    # Possible locations to check
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    possible_paths = [
+        os.path.join(os.path.dirname(current_dir), 'northwind.db'),  # ../northwind.db (relative to environment/)
+        '/app/northwind.db',  # Docker container path
+        os.path.join(current_dir, '..', 'northwind.db'),  # Alternative relative
+        'northwind.db',  # Current working directory
+        os.path.join(os.getcwd(), 'northwind.db'),  # Explicit cwd
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            return os.path.abspath(path)
+    
+    # If not found, raise with helpful message
+    raise FileNotFoundError(
+        f"Northwind database not found. Searched: {possible_paths}. "
+        f"Current dir: {current_dir}, CWD: {os.getcwd()}"
+    )
+
+
 def get_reference_date() -> str:
     """Return the fixed reference date used for all date calculations.
     
@@ -114,12 +144,8 @@ class DatabaseManager:
         
         cursor = self.conn.cursor()
         
-        # Determine path to Northwind database
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        northwind_path = os.path.join(os.path.dirname(current_dir), 'northwind.db')
-        
-        if not os.path.exists(northwind_path):
-            raise FileNotFoundError(f"Northwind database not found at: {northwind_path}")
+        # Find Northwind database using robust path detection
+        northwind_path = get_northwind_path()
         
         # Initialize adapter
         adapter = NorthwindAdapter(northwind_path)
