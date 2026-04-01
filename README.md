@@ -1,3 +1,13 @@
+---
+title: SCOUT AI - Business Analyst
+emoji: 🔍
+colorFrom: blue
+colorTo: purple
+sdk: docker
+pinned: false
+license: mit
+---
+
 # 🔍 SCOUT AI — Autonomous Business Analyst Agent
 
 > **AI that analyzes your business data and tells you what to do — before you ask.**
