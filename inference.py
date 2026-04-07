@@ -3,6 +3,7 @@
 
 Reads API credentials from OPENAI_API_KEY environment variable.
 Falls back to GROQ_API_KEY if OPENAI_API_KEY is not set.
+Uses ENV_URL environment variable for server URL (defaults to http://localhost:7860).
 """
 
 import os
@@ -13,6 +14,10 @@ import time
 from openai import OpenAI
 import httpx
 from typing import Dict, Any, List
+
+# Get environment URL from ENV_URL env var (used by hackathon evaluation)
+DEFAULT_ENV_URL = "http://localhost:7860"
+ENV_URL = os.getenv("ENV_URL", DEFAULT_ENV_URL)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -133,8 +138,14 @@ def extract_action(text: str):
     return None
 
 
-def run_baseline(base_url: str = "http://localhost:7860", task_ids: List[str] = None) -> Dict:
+def run_baseline(base_url: str = None, task_ids: List[str] = None) -> Dict:
     """Run baseline agent on all tasks and return results."""
+    
+    # Use provided base_url, fall back to ENV_URL environment variable
+    if base_url is None:
+        base_url = ENV_URL
+    
+    print(f"Using environment URL: {base_url}")
 
     # Support both OPENAI_API_KEY and GROQ_API_KEY (spec requires OPENAI_API_KEY)
     api_key = os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")
@@ -331,12 +342,38 @@ def run_baseline(base_url: str = "http://localhost:7860", task_ids: List[str] = 
 
 
 if __name__ == "__main__":
+    # Use ENV_URL from environment variable
+    base_url = ENV_URL
+    
+    print(f"Checking environment at: {base_url}")
+    
     try:
-        httpx.get("http://localhost:7860/health", timeout=5.0).raise_for_status()
-    except Exception as e:
-        print("Error: Server not running at http://localhost:7860")
-        print("Start with:  uvicorn server:app --host 0.0.0.0 --port 7860")
+        resp = httpx.get(f"{base_url}/health", timeout=30.0)
+        resp.raise_for_status()
+        print(f"Environment healthy: {resp.json()}")
+    except httpx.ConnectError as e:
+        print(f"Error: Cannot connect to server at {base_url}")
+        print(f"Make sure the environment container is running and reachable.")
         print(f"Details: {e}")
         sys.exit(1)
+    except httpx.TimeoutException as e:
+        print(f"Error: Connection timeout to {base_url}")
+        print(f"The server may be slow to respond or unreachable.")
+        print(f"Details: {e}")
+        sys.exit(1)
+    except httpx.HTTPStatusError as e:
+        print(f"Error: Server returned error status: {e.response.status_code}")
+        print(f"Details: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error: Unexpected error checking server health")
+        print(f"Details: {type(e).__name__}: {e}")
+        sys.exit(1)
 
-    run_baseline()
+    try:
+        run_baseline(base_url=base_url)
+    except Exception as e:
+        print(f"Error during baseline execution: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

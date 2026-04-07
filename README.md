@@ -96,6 +96,14 @@ open http://localhost:7860/app
 
 The dashboard **auto-scans** and shows findings immediately!
 
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OPENAI_API_KEY` | OpenAI API key | Required |
+| `GROQ_API_KEY` | Groq API key (alternative) | Optional |
+| `ENV_URL` | Environment server URL | `http://localhost:7860` |
+
 ---
 
 ## 🔌 OpenEnv API Endpoints
