@@ -18,11 +18,11 @@ class TestServerBasics:
         assert response.status_code == 200
         data = response.json()
         
-        assert data["name"] == "BizAnalyst-Env"
-        assert data["version"] == "1.0.0"
+        assert data["name"] == "SCOUT AI"
+        assert data["version"] == "2.0.0"
         assert data["status"] == "running"
         assert "endpoints" in data
-        assert len(data["endpoints"]) == 7
+        assert len(data["endpoints"]) == 5
     
     def test_health_endpoint(self):
         """Test health check endpoint."""
@@ -31,7 +31,7 @@ class TestServerBasics:
         data = response.json()
         
         assert data["status"] == "ok"
-        assert data["env"] == "BizAnalyst-Env"
+        assert data["service"] == "SCOUT AI"
 
 
 class TestResetEndpoint:
