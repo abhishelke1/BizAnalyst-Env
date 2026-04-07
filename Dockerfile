@@ -1,12 +1,15 @@
 FROM public.ecr.aws/docker/library/python:3.10-slim-bookworm
 WORKDIR /app
 
-# Install git-lfs and curl for LFS file handling
-RUN apt-get update && apt-get install -y --no-install-recommends git git-lfs curl && \
-    rm -rf /var/lib/apt/lists/* && \
-    git lfs install
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    git-lfs \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && git lfs install
 
-# Install requirements first for better caching
+# Copy requirements and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir --default-timeout=120 -r requirements.txt
@@ -30,8 +33,16 @@ RUN FILE_SIZE=$(stat -c%s /app/northwind.db 2>/dev/null || echo "0") && \
     fi && \
     echo "northwind.db verified: $FINAL_SIZE bytes"
 
-EXPOSE 7860
+# Set environment variables
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
 
-# SCOUT AI Server - autonomous business analyst
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:7860/health || exit 1
+
+# Expose port
+EXPOSE 7860
+
+# Start server
 CMD ["uvicorn", "scout_server:app", "--host", "0.0.0.0", "--port", "7860"]

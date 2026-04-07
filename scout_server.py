@@ -83,7 +83,7 @@ class ScoutResultResponse(BaseModel):
 
 
 class ResetRequest(BaseModel):
-    task_id: Optional[str] = "revenue_summary"  # Default task if not specified
+    task_id: Optional[str] = None  # Make it truly optional
 
 
 class StepResponse(BaseModel):
@@ -412,17 +412,23 @@ async def investigate_alert(alert_id: str, background_tasks: BackgroundTasks):
 # ─────────────────────────────────────────────────────────────
 
 @app.post("/reset")
-async def reset(request: Optional[ResetRequest] = None):
+async def reset(request: ResetRequest = None):
     """Reset environment with a task."""
     try:
         # Handle null/empty body by using default task
-        task_id = request.task_id if request else "revenue_summary"
+        if request is None or not hasattr(request, 'task_id'):
+            task_id = "revenue_summary"
+        else:
+            task_id = request.task_id or "revenue_summary"
+        
         observation = env.reset(task_id)
         return observation.model_dump()
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+        import traceback
+        error_detail = f"Internal error: {str(e)}\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=error_detail)
 
 
 @app.post("/step")
