@@ -1,8 +1,8 @@
-FROM python:3.11-slim
+FROM public.ecr.aws/docker/library/python:3.11.13-slim-bookworm
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir --default-timeout=120 -r requirements.txt
 COPY . .
 EXPOSE 7860
 ENV PYTHONUNBUFFERED=1

@@ -11,13 +11,33 @@ import re
 import json
 import sys
 import time
-from openai import OpenAI
-import httpx
+import traceback
+
+try:
+    from openai import OpenAI
+except ImportError as e:
+    print(f"Error: Failed to import openai: {e}")
+    print("Install with: pip install openai")
+    sys.exit(1)
+
+try:
+    import httpx
+except ImportError as e:
+    print(f"Error: Failed to import httpx: {e}")
+    print("Install with: pip install httpx")
+    sys.exit(1)
+
 from typing import Dict, Any, List
 
 # Get environment URL from ENV_URL env var (used by hackathon evaluation)
 DEFAULT_ENV_URL = "http://localhost:7860"
 ENV_URL = os.getenv("ENV_URL", DEFAULT_ENV_URL)
+
+# Debug: Print environment info at startup
+print(f"[DEBUG] Python version: {sys.version}")
+print(f"[DEBUG] ENV_URL: {ENV_URL}")
+print(f"[DEBUG] OPENAI_API_KEY set: {bool(os.getenv('OPENAI_API_KEY'))}")
+print(f"[DEBUG] GROQ_API_KEY set: {bool(os.getenv('GROQ_API_KEY'))}")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -342,38 +362,68 @@ def run_baseline(base_url: str = None, task_ids: List[str] = None) -> Dict:
 
 
 if __name__ == "__main__":
+    print("=" * 60)
+    print("SCOUT AI - Baseline Inference Script")
+    print("=" * 60)
+    
     # Use ENV_URL from environment variable
     base_url = ENV_URL
     
-    print(f"Checking environment at: {base_url}")
+    print(f"[INFO] Environment URL: {base_url}")
     
-    try:
-        resp = httpx.get(f"{base_url}/health", timeout=30.0)
-        resp.raise_for_status()
-        print(f"Environment healthy: {resp.json()}")
-    except httpx.ConnectError as e:
-        print(f"Error: Cannot connect to server at {base_url}")
-        print(f"Make sure the environment container is running and reachable.")
-        print(f"Details: {e}")
+    # Check API key first
+    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")
+    if not api_key:
+        print("[ERROR] No API key found!")
+        print("Set OPENAI_API_KEY or GROQ_API_KEY environment variable.")
         sys.exit(1)
-    except httpx.TimeoutException as e:
-        print(f"Error: Connection timeout to {base_url}")
-        print(f"The server may be slow to respond or unreachable.")
-        print(f"Details: {e}")
-        sys.exit(1)
-    except httpx.HTTPStatusError as e:
-        print(f"Error: Server returned error status: {e.response.status_code}")
-        print(f"Details: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error: Unexpected error checking server health")
-        print(f"Details: {type(e).__name__}: {e}")
-        sys.exit(1)
+    print(f"[INFO] API key found (length: {len(api_key)})")
+    
+    # Health check with retries
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            print(f"[INFO] Health check attempt {attempt + 1}/{max_retries}...")
+            resp = httpx.get(f"{base_url}/health", timeout=30.0)
+            resp.raise_for_status()
+            health_data = resp.json()
+            print(f"[INFO] Environment healthy: {health_data}")
+            break
+        except httpx.ConnectError as e:
+            print(f"[WARN] Cannot connect to server at {base_url}: {e}")
+            if attempt < max_retries - 1:
+                print(f"[INFO] Retrying in 5 seconds...")
+                time.sleep(5)
+            else:
+                print(f"[ERROR] Failed to connect after {max_retries} attempts")
+                sys.exit(1)
+        except httpx.TimeoutException as e:
+            print(f"[WARN] Connection timeout: {e}")
+            if attempt < max_retries - 1:
+                print(f"[INFO] Retrying in 5 seconds...")
+                time.sleep(5)
+            else:
+                print(f"[ERROR] Timeout after {max_retries} attempts")
+                sys.exit(1)
+        except httpx.HTTPStatusError as e:
+            print(f"[ERROR] Server returned error status: {e.response.status_code}")
+            print(f"[ERROR] Response: {e.response.text}")
+            sys.exit(1)
+        except Exception as e:
+            print(f"[ERROR] Unexpected error: {type(e).__name__}: {e}")
+            traceback.print_exc()
+            if attempt < max_retries - 1:
+                print(f"[INFO] Retrying in 5 seconds...")
+                time.sleep(5)
+            else:
+                sys.exit(1)
 
+    # Run the baseline
     try:
+        print("[INFO] Starting baseline evaluation...")
         run_baseline(base_url=base_url)
+        print("[INFO] Baseline evaluation completed successfully!")
     except Exception as e:
-        print(f"Error during baseline execution: {type(e).__name__}: {e}")
-        import traceback
+        print(f"[ERROR] Baseline execution failed: {type(e).__name__}: {e}")
         traceback.print_exc()
         sys.exit(1)
