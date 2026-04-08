@@ -528,10 +528,13 @@ async def grade_answer(request: GraderRequest) -> GraderResponse:
             0  # steps_used
         )
         
+        # Hackathon Phase 2 strict validation: Must be strictly between 0 and 1 (exclusive)
+        clamped_score = max(0.001, min(0.999, float(score)))
+        
         temp_env.db_manager.close()
         
         return GraderResponse(
-            score=score,
+            score=clamped_score,
             breakdown=breakdown,
             feedback=feedback
         )
@@ -682,11 +685,11 @@ Respond with a single JSON object only. No extra text."""
                 except json.JSONDecodeError:
                     messages.append({"role": "user", "content": "Invalid JSON. Respond with ONLY a single valid JSON object."})
                 except Exception as e:
-                    scores[task_id] = 0.0
+                    scores[task_id] = 0.001  # Strictly > 0 for Phase 2 validation
                     break
             
             if task_id not in scores:
-                scores[task_id] = 0.0
+                scores[task_id] = 0.001  # Strictly > 0 for Phase 2 validation
             
             temp_env.db_manager.close()
         
