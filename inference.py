@@ -35,6 +35,11 @@ BENCHMARK = "scout-ai-bizanalyst"
 TASK_IDS = ["revenue_summary", "customer_churn_risk", "anomaly_investigation"]
 
 
+def clamp_score(value: float) -> float:
+    """Clamp any score/reward to strict (0, 1) bounds required by validator."""
+    return max(0.001, min(0.999, float(value)))
+
+
 # ============================================================================
 # SYSTEM PROMPT FOR LLM
 # ============================================================================
@@ -129,7 +134,7 @@ def run_task(client: OpenAI, task_id: str, env_url: str, model: str) -> Dict:
     """Run a single task and return results with proper stdout logging."""
     rewards_list: List[float] = []
     step_count = 0
-    final_score = 0.0
+    final_score = 0.001
     success = False
     last_error: Optional[str] = None
     
@@ -168,8 +173,8 @@ def run_task(client: OpenAI, task_id: str, env_url: str, model: str) -> Dict:
             except Exception as e:
                 last_error = str(e)
                 step_count += 1
-                rewards_list.append(0.0)
-                print(f"[STEP] step={step_count} action=llm_error() reward=0.00 done=false error={last_error}")
+                rewards_list.append(0.001)
+                print(f"[STEP] step={step_count} action=llm_error() reward=0.001 done=false error={last_error}")
                 sys.stdout.flush()
                 if "429" in last_error or "rate" in last_error.lower():
                     time.sleep(30)
@@ -179,9 +184,9 @@ def run_task(client: OpenAI, task_id: str, env_url: str, model: str) -> Dict:
             action_dict = extract_action(assistant_msg)
             if not action_dict:
                 step_count += 1
-                rewards_list.append(0.0)
+                rewards_list.append(0.001)
                 last_error = "No valid JSON action in response"
-                print(f"[STEP] step={step_count} action=parse_error() reward=0.00 done=false error={last_error}")
+                print(f"[STEP] step={step_count} action=parse_error() reward=0.001 done=false error={last_error}")
                 sys.stdout.flush()
                 messages.append({"role": "user", "content": "Respond with ONLY a JSON object. No markdown."})
                 continue
@@ -192,9 +197,9 @@ def run_task(client: OpenAI, task_id: str, env_url: str, model: str) -> Dict:
             # Block early submit
             if action_type == "submit_answer" and queries_run == 0:
                 step_count += 1
-                rewards_list.append(0.0)
+                rewards_list.append(0.001)
                 last_error = "Cannot submit before querying"
-                print(f"[STEP] step={step_count} action={action_str} reward=0.00 done=false error={last_error}")
+                print(f"[STEP] step={step_count} action={action_str} reward=0.001 done=false error={last_error}")
                 sys.stdout.flush()
                 messages.append({"role": "user", "content": "You must run at least one query before submitting."})
                 continue
@@ -206,9 +211,9 @@ def run_task(client: OpenAI, task_id: str, env_url: str, model: str) -> Dict:
                 step_result = step_resp.json()
             except Exception as e:
                 step_count += 1
-                rewards_list.append(0.0)
+                rewards_list.append(0.001)
                 last_error = str(e)
-                print(f"[STEP] step={step_count} action={action_str} reward=0.00 done=false error={last_error}")
+                print(f"[STEP] step={step_count} action={action_str} reward=0.001 done=false error={last_error}")
                 sys.stdout.flush()
                 continue
             
@@ -217,7 +222,7 @@ def run_task(client: OpenAI, task_id: str, env_url: str, model: str) -> Dict:
             done = step_result["done"]
             step_count += 1
             
-            reward_value = reward.get("value", 0.0)
+            reward_value = clamp_score(reward.get("value", 0.001))
             rewards_list.append(reward_value)
             
             if action_type == "run_query":
@@ -233,7 +238,7 @@ def run_task(client: OpenAI, task_id: str, env_url: str, model: str) -> Dict:
             # [STEP] log
             done_str = "true" if done else "false"
             error_str = last_error if last_error else "null"
-            print(f"[STEP] step={step_count} action={action_str} reward={reward_value:.2f} done={done_str} error={error_str}")
+            print(f"[STEP] step={step_count} action={action_str} reward={reward_value:.3f} done={done_str} error={error_str}")
             sys.stdout.flush()
             
             if done:
@@ -254,19 +259,19 @@ def run_task(client: OpenAI, task_id: str, env_url: str, model: str) -> Dict:
         last_error = str(e)
         if step_count == 0:
             step_count = 1
-            rewards_list.append(0.0)
-        print(f"[STEP] step={step_count} action=exception() reward=0.00 done=true error={last_error}")
+            rewards_list.append(0.001)
+        print(f"[STEP] step={step_count} action=exception() reward=0.001 done=true error={last_error}")
         sys.stdout.flush()
     
     # [END] log
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards_list) if rewards_list else "0.00"
+    rewards_str = ",".join(f"{r:.3f}" for r in rewards_list) if rewards_list else "0.001"
     success_str = "true" if success else "false"
-    print(f"[END] success={success_str} steps={step_count} score={final_score:.2f} rewards={rewards_str}")
+    print(f"[END] success={success_str} steps={step_count} score={clamp_score(final_score):.3f} rewards={rewards_str}")
     sys.stdout.flush()
     
     return {
         "task_id": task_id,
-        "score": final_score,
+        "score": clamp_score(final_score),
         "steps": step_count,
         "success": success,
         "rewards": rewards_list
@@ -277,7 +282,7 @@ def main():
     """Main entry point."""
     # Validate API key
     if not API_KEY:
-        print("[END] success=false steps=0 score=0.00 rewards=0.00")
+        print("[END] success=false steps=0 score=0.001 rewards=0.001")
         sys.stderr.write("ERROR: No API key found. Set HF_TOKEN, OPENAI_API_KEY, or API_KEY.\n")
         sys.exit(1)
     
@@ -295,8 +300,8 @@ def main():
         sys.stderr.write(f"ERROR: Cannot connect to environment at {ENV_URL}: {e}\n")
         for task_id in TASK_IDS:
             print(f"[START] task={task_id} env={BENCHMARK} model={MODEL_NAME}")
-            print(f"[STEP] step=1 action=health_check() reward=0.00 done=true error=Connection failed")
-            print(f"[END] success=false steps=1 score=0.00 rewards=0.00")
+            print(f"[STEP] step=1 action=health_check() reward=0.001 done=true error=Connection failed")
+            print(f"[END] success=false steps=1 score=0.001 rewards=0.001")
         sys.exit(1)
     
     # Run all tasks
@@ -309,9 +314,9 @@ def main():
     total_score = sum(r["score"] for r in results)
     avg_score = total_score / len(results) if results else 0.0
     sys.stderr.write(f"\n=== Summary ===\n")
-    sys.stderr.write(f"Average Score: {avg_score:.2f}\n")
+    sys.stderr.write(f"Average Score: {clamp_score(avg_score):.3f}\n")
     for r in results:
-        sys.stderr.write(f"  {r['task_id']}: {r['score']:.2f} ({r['steps']} steps)\n")
+        sys.stderr.write(f"  {r['task_id']}: {clamp_score(r['score']):.3f} ({r['steps']} steps)\n")
 
 
 if __name__ == "__main__":
