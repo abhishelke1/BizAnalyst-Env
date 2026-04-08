@@ -9,3 +9,4 @@ httpx==0.25.2
 PyYAML==6.0.2
 aiofiles==24.1.0
 python-multipart==0.0.9
+openenv-core>=0.2.0
