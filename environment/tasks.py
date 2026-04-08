@@ -351,4 +351,9 @@ class TaskManager:
 
     def grade_answer(self, task_id: str, answer: str, steps_used: int):
         task = self.get_task(task_id)
-        return task.grader_func(answer, task.correct_answers, steps_used)
+        score, components, feedback = task.grader_func(answer, task.correct_answers, steps_used)
+        
+        # Hackathon Phase 2 strict validation: Must be strictly between 0 and 1 (i.e. not exactly 0.0 or 1.0)
+        clamped_score = max(0.001, min(0.999, float(score)))
+        
+        return clamped_score, components, feedback
