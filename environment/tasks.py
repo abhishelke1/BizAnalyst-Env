@@ -353,7 +353,11 @@ class TaskManager:
         task = self.get_task(task_id)
         score, components, feedback = task.grader_func(answer, task.correct_answers, steps_used)
         
-        # Hackathon Phase 2 strict validation: Must be strictly between 0 and 1 (i.e. not exactly 0.0 or 1.0)
-        clamped_score = max(0.001, min(0.999, float(score)))
+        # Hackathon Phase 2 strict validation: ALL scores must be strictly between 0 and 1 (exclusive)
+        def clamp_score(s):
+            return max(0.001, min(0.999, float(s)))
         
-        return clamped_score, components, feedback
+        clamped_score = clamp_score(score)
+        clamped_components = {k: clamp_score(v) for k, v in components.items()}
+        
+        return clamped_score, clamped_components, feedback

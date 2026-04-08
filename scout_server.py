@@ -528,14 +528,18 @@ async def grade_answer(request: GraderRequest) -> GraderResponse:
             0  # steps_used
         )
         
-        # Hackathon Phase 2 strict validation: Must be strictly between 0 and 1 (exclusive)
-        clamped_score = max(0.001, min(0.999, float(score)))
+        # Hackathon Phase 2 strict validation: ALL scores must be strictly between 0 and 1 (exclusive)
+        def clamp_score(s):
+            return max(0.001, min(0.999, float(s)))
+        
+        clamped_score = clamp_score(score)
+        clamped_breakdown = {k: clamp_score(v) for k, v in breakdown.items()}
         
         temp_env.db_manager.close()
         
         return GraderResponse(
             score=clamped_score,
-            breakdown=breakdown,
+            breakdown=clamped_breakdown,
             feedback=feedback
         )
         
