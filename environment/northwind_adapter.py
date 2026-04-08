@@ -19,7 +19,7 @@ class NorthwindAdapter:
         self.reference_date = datetime.strptime(get_reference_date(), '%Y-%m-%d')
         
     def _transform_date(self, old_date_str: str, days_offset: int = 0) -> str:
-        """Transform old Northwind dates to 2022-2024 timeframe.
+        """Transform old Northwind dates to 2023-2024 timeframe.
         
         Args:
             old_date_str: Original date string from Northwind
@@ -35,11 +35,11 @@ class NorthwindAdapter:
             # Fallback to reference date if parsing fails
             return (self.reference_date - timedelta(days=180)).strftime('%Y-%m-%d')
         
-        # Northwind dates range from 1996-07-04 to 1998-05-06
-        # We want to map them to 2022-01-01 to 2024-05-31
-        northwind_start = datetime(1996, 7, 4)
-        northwind_end = datetime(1998, 5, 6)
-        target_start = datetime(2022, 1, 1)
+        # This Northwind DB has dates from ~2012-07 to ~2023-10
+        # We want to map them to 2023-01-01 to 2024-05-31
+        northwind_start = datetime(2012, 7, 1)
+        northwind_end = datetime(2023, 10, 31)
+        target_start = datetime(2023, 1, 1)
         target_end = datetime(2024, 5, 31)
         
         # Calculate position in original range (0.0 to 1.0)
@@ -55,9 +55,9 @@ class NorthwindAdapter:
         new_range = (target_end - target_start).days
         new_date = target_start + timedelta(days=int(position * new_range))
         
-        # Add offset for variation
+        # Add small offset for variation (within same month)
         if days_offset != 0:
-            new_date = new_date + timedelta(days=days_offset % 30)
+            new_date = new_date + timedelta(days=days_offset % 15)
         
         # Ensure within bounds
         if new_date < target_start:

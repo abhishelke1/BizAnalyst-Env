@@ -35,5 +35,5 @@ endpoints:
   tasks: GET /tasks
   grader: POST /grader
   baseline: POST /baseline
+  health: GET /health
 tags: [business-intelligence, sql, analytics, autonomous-agent, openenv]
-

@@ -15,9 +15,19 @@ import asyncio
 from datetime import datetime
 
 from environment import BizAnalystEnv, Action, ActionType
-from agent.core import ScoutAgent, AgentResult
-from agent.memory import AgentMemory
-from agent.scanner import AutoScanner
+
+# Lazy imports for agent modules - these require GROQ_API_KEY
+try:
+    from agent.core import ScoutAgent, AgentResult
+    from agent.memory import AgentMemory
+    from agent.scanner import AutoScanner
+    AGENT_AVAILABLE = True
+except Exception:
+    AGENT_AVAILABLE = False
+    ScoutAgent = None
+    AgentResult = None
+    AgentMemory = None
+    AutoScanner = None
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -42,7 +52,10 @@ FRONTEND_DIR = Path(__file__).parent / "frontend"
 @app.get("/app")
 async def serve_frontend():
     """Serve the SCOUT AI frontend."""
-    return FileResponse(FRONTEND_DIR / "index.html")
+    index_path = FRONTEND_DIR / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    raise HTTPException(status_code=404, detail="Frontend not available")
 
 # Global environment instance
 env = BizAnalystEnv()
@@ -150,6 +163,8 @@ async def start_scout_investigation(request: ScoutTaskRequest, background_tasks:
     4. Analyze results
     5. Generate insights and recommendations
     """
+    if not AGENT_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Agent modules not available")
     task_id = str(uuid.uuid4())[:8]
     
     # Store task
@@ -348,6 +363,8 @@ async def auto_scan():
     This is the WOW MOMENT - AI takes initiative and finds problems
     before anyone asks. Returns severity-ranked alerts with recommendations.
     """
+    if not AGENT_AVAILABLE or AutoScanner is None:
+        raise HTTPException(status_code=503, detail="Agent modules not available")
     try:
         scanner = AutoScanner(execute_sql)
         results = scanner.scan_all()

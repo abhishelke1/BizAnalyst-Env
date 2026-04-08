@@ -27,10 +27,23 @@ import httpx
 # ============================================================================
 # CONFIGURATION - Using required environment variables
 # ============================================================================
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY") or os.getenv("API_KEY")
+API_BASE_URL = os.getenv("API_BASE_URL", "")
+MODEL_NAME = os.getenv("MODEL_NAME", "")
+API_KEY = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY") or os.getenv("API_KEY")
 ENV_URL = os.getenv("ENV_URL", "http://localhost:7860")
+
+# Auto-detect API base URL and model if not explicitly set
+if not API_BASE_URL:
+    if os.getenv("GROQ_API_KEY"):
+        API_BASE_URL = "https://api.groq.com/openai/v1"
+    else:
+        API_BASE_URL = "https://router.huggingface.co/v1"
+
+if not MODEL_NAME:
+    if os.getenv("GROQ_API_KEY"):
+        MODEL_NAME = "llama-3.1-8b-instant"
+    else:
+        MODEL_NAME = "Qwen/Qwen2.5-72B-Instruct"
 BENCHMARK = "scout-ai-bizanalyst"
 TASK_IDS = ["revenue_summary", "customer_churn_risk", "anomaly_investigation"]
 
